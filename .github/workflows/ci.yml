@@ -1,7 +1,7 @@
 # xne CI: the unit suite on Linux (PHP 7.4 and 8.5) and Windows (PHP 8.1, the oldest PHP the kernel's own tools run
 # with, and 8.5; a Linux runner has a second PHP for the kernel's tools, a Windows runner only one), and on Windows the real-release
 # integration: Exponential v6.0.13 and v6.0.14 from GitHub, composer install, an SQLite install, then plan, dry run,
-# upgrade 6.0.13 -> 6.0.14 and an exact rollback through xne, and plan and dry run 6.0.14 -> main, on the Windows runner.
+# upgrade and an exact rollback through xne of 6.0.13 -> 6.0.14 and of 6.0.14 -> main, on the Windows runner.
 name: ci
 
 on:
@@ -82,9 +82,8 @@ jobs:
           "XNE_IT_COMPOSER=$phar" >> $env:GITHUB_ENV
           "XNE_IT_PHP=$((Get-Command php).Source)" >> $env:GITHUB_ENV
       - name: Real Exponential releases on Windows (plan, dry run, upgrade, rollback)
-        # the full 6.0.14 -> main upgrade is left out on Windows until the kernel's autoload generator excludes test
-        # folders there (it loads extension tests/ files and the kernel step fails; xne then rolls back exactly)
-        run: 'php tests/run.php "stable channel|sqlite: plan --json and dry run"'
+        # 6.0.13 -> 6.0.14 and 6.0.14 -> main (6.0.15), each upgraded and rolled back exactly
+        run: 'php tests/run.php "stable channel|sqlite: plan --json"'
       - name: Kernel logs of the test installs (on failure)
         if: failure()
         shell: pwsh

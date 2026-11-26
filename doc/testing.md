@@ -1,6 +1,6 @@
 # Testing xne
 
-Last verified: 2026-11-26 (xne 0.3.0.1)
+Last verified: 2026-11-26 (xne 0.3.0.9)
 
 The tests are plain PHP (no PHPUnit): `tests/run.php` runs every `tests/php/*Test.php` and, when `XNE_IT_DIR` is
 set, every `tests/integration/*Test.php`. Each file returns a map "test name" => callable; a test passes when it
@@ -32,11 +32,12 @@ make test                                # = php tests/run.php
 | Job | Runner | What |
 |---|---|---|
 | unit | ubuntu-24.04 with PHP 7.4 and 8.5, windows-2022 with PHP 8.1, windows-2025 with PHP 8.5 | `php -l` of every file, the whole unit suite (`php tests/run.php`), and on Windows `xne.bat` and `xne.ps1` started by hand |
-| real release | windows-2022 and windows-2025, PHP 8.5 | the integration fixture on Windows: Exponential v6.0.13 and v6.0.14 from GitHub, `composer install`, SQLite installs; 6.0.13 -> 6.0.14 planned, dry-run, upgraded through the SQL path and rolled back exactly (files and database fingerprints); 6.0.14 -> main (6.0.15) planned and dry-run. The full 6.0.14 -> main upgrade on Windows waits for a kernel fix (below) |
+| real release | windows-2022 and windows-2025, PHP 8.5 | the integration fixture on Windows: Exponential v6.0.13 and v6.0.14 from GitHub, `composer install`, SQLite installs; 6.0.13 -> 6.0.14 planned, dry-run, upgraded through the SQL path and rolled back exactly (files and database fingerprints); 6.0.14 -> main (6.0.15) planned, dry-run, upgraded and rolled back exactly. Exponential's own Windows CI runs the same 6.0.14 -> main upgrade and rollback through xne on every kernel push ([a green run](https://github.com/se7enxweb/exponential/actions/runs/45867228580)) |
 
-**Known kernel issue on Windows (2026-11-26):** the kernel's `exp:upgrade` of 6.0.14 -> main fails on Windows in its
-autoload step, which loads the test files of an extension (`extension/ezmbpaex/tests/...`) that its exclusions skip on
-Linux. xne rolls the install back exactly, as it must; the fix belongs in the kernel's autoload generator.
+On Windows, upgrades from 6.0.13 to 6.0.14 and from 6.0.14 to 6.0.15 run in CI on Windows Server 2022 and 2025,
+each with an exact rollback (files and database): [xne CI](https://github.com/se7enxweb/xne/actions/runs/45848213473),
+[Exponential's Windows CI](https://github.com/se7enxweb/exponential/actions/runs/45867228580). The kernel fixes that made the 6.0.15 upgrade
+pass there are tracked in exponential#377.
 
 `LauncherTest` runs on every platform: on Linux `bin/xne`, on Windows `bin\xne.bat` (cmd) and `bin\xne.ps1`
 (Windows PowerShell and PowerShell 7), each with an install path that holds spaces, `--json`, and a usage error that

@@ -1,6 +1,6 @@
 # xne: Exponential Network
 
-[![Version](https://img.shields.io/badge/xne-0.3.0.8-2b6cb0)](#versioning)
+[![Version](https://img.shields.io/badge/xne-0.3.0.9-2b6cb0)](#versioning)
 [![PHP](https://img.shields.io/badge/PHP-7.4%20to%208.5-8892BF?logo=php&logoColor=white)](https://php.net)
 [![Engines](https://img.shields.io/badge/databases-MySQL%20%7C%20PostgreSQL%20%7C%20SQLite%20%7C%20MongoDB%20%7C%20Oracle-4a5568)](doc/engines.md)
 [![API](https://img.shields.io/badge/API-network.se7enx.com%2Fapi%2Fv1-38a169)](#the-api)
@@ -251,10 +251,16 @@ What xne never does:
 
 ## Versioning
 
-Four positions, `X.Y.Z.N`: currently **0.3.0.8** (`App::VERSION`, the `VERSION` file, `xne version`, every `--json`
+Four positions, `X.Y.Z.N`: currently **0.3.0.9** (`App::VERSION`, the `VERSION` file, `xne version`, every `--json`
 result and `GET /api/v1/status`). Only the last position counts on: 0.3.0.9 -> 0.3.0.10. Tags are permanent:
 a published version is never moved or re-cut; a fix is always the next version.
 
+- **0.3.0.9** (2026-11-26): a rollback moves aside the extension folders Composer added for a dependency of an
+  updated package (named only by the install's composer.lock afterwards, as exponential-php-floor 1.3 brings some
+  forty extensions), and extension folders are named as the legacy installer names them
+  (`ezpublish-legacy-extension-name`). On Windows, upgrades from 6.0.13 to 6.0.14 and from 6.0.14 to 6.0.15 run in
+  CI on Windows Server 2022 and 2025, each with an exact rollback ([xne CI](https://github.com/se7enxweb/xne/actions/runs/45848213473), [Exponential's Windows
+  CI](https://github.com/se7enxweb/exponential/actions/runs/45867228580)); the Windows limit noted for 0.3.0.8 no longer applies.
 - **0.3.0.8** (2026-11-26): notifications go through generic notify hooks (`notify_problem_cmd`, `notify_ok_cmd`,
   `notify_event_cmd`): command lines with placeholders and `XNE_NOTIFY_*` environment, started without a shell, so
   any alerting, chat or ticket tool can be plugged in (doc/server.md, "Notify hooks"). Windows is proven in CI.
