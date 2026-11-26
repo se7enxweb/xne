@@ -100,7 +100,8 @@ function t_fake_install(string $dir, string $version = '6.0.14', array $files = 
  * A fake release: a tree (lib/version.php, kernel tools that answer like the real ones, the given files) packed as
  * <dir>/<ref>.tar.gz in GitHub's layout, and listed in <dir>/index.json. @param array<string,string> $files
  */
-function t_fake_release(string $dir, string $ref, string $kind, string $version, array $files): void
+/** @param list<string> $unlisted files of the release left out of its share/filelist.md5 (as composer.lock in a real one) */
+function t_fake_release(string $dir, string $ref, string $kind, string $version, array $files, array $unlisted = []): void
 {
     [$maj, $min, $rel] = explode('.', $version);
     $base = [
@@ -114,7 +115,9 @@ function t_fake_release(string $dir, string $ref, string $kind, string $version,
     $files = $files + $base;
     $md5 = [];
     foreach ($files as $p => $c) {
-        $md5[$p] = md5($c);
+        if (!in_array($p, $unlisted, true)) {
+            $md5[$p] = md5($c);
+        }
     }
     $files['share/filelist.md5'] = \Xne\Filelist::format($md5);
     \Xne\Fs::mkdir($dir);

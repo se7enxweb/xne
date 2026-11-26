@@ -59,6 +59,27 @@ final class Guard
     }
 
     /**
+     * Removes the install folder $root/$rel and the folders below it once they are empty (their files moved aside
+     * into a backup); a folder that still holds anything, a link and a path that leads out of the install are left.
+     */
+    public static function guardedRemoveEmptyDirs(string $root, string $rel): void
+    {
+        if (!Fs::safeRel($rel)) {
+            throw new XneException("refused to remove $rel: unsafe path");
+        }
+        $dir = $root . '/' . $rel;
+        if (is_link($dir) || !is_dir($dir) || !Fs::inside($root, $dir)) {
+            return;
+        }
+        foreach ((array) scandir($dir) as $e) {
+            if ($e !== '.' && $e !== '..' && !is_link($dir . '/' . $e) && is_dir($dir . '/' . $e)) {
+                self::guardedRemoveEmptyDirs($root, $rel . '/' . $e);
+            }
+        }
+        @rmdir($dir);
+    }
+
+    /**
      * Removes a whole backup folder during rotation: it must be inside $stateRoot (symlinks resolved) and carry the
      * marker file. Nothing outside the xne state folder can match.
      */

@@ -45,6 +45,39 @@ final class Rollback
     }
 
     /**
+     * The extension folders of extension packages the install's composer.lock names that are new since the backup:
+     * not named by the composer.lock in the backup, not a library folder of its listing, and present as a folder (not
+     * a link) in the install. Only for a backup that archived composer.lock (the libraries ran). @return list<string>
+     * @param array<string,mixed> $b @param array<string,mixed> $listing
+     */
+    private function addedExtensionDirs(array $b, array $listing): array
+    {
+        $sums = (array) ($b['files']['sums'] ?? []);
+        if (!isset($sums['composer.lock']) || !is_file($this->root . '/composer.lock')) {
+            return [];
+        }
+        $old = null;
+        Tar::read((string) $b['dir'] . '/' . $b['files']['archive'], static function (array $e, $data) use (&$old): void {
+            if ($e['name'] === 'composer.lock' && $e['type'] === 'file') {
+                $old = $data->readAll();
+            }
+        });
+        if ($old === null) {
+            return [];
+        }
+        $before = array_flip(Plan::lockExtensionDirs($old));
+        $out = [];
+        foreach (Plan::lockExtensionDirs((string) file_get_contents($this->root . '/composer.lock')) as $ld) {
+            $abs = $this->root . '/' . $ld;
+            if (isset($before[$ld]) || array_key_exists($ld, $listing) || is_link($abs) || !is_dir($abs)) {
+                continue;
+            }
+            $out[] = $ld;
+        }
+        return $out;
+    }
+
+    /**
      * @param array<string,mixed> $b the backup (with dir)
      * @return array<string,mixed> what was done
      */
@@ -98,6 +131,16 @@ final class Rollback
                 }
             }
         }
+        // extension folders Composer added for packages the plan could not name: dependencies of an updated package
+        // (exponential-php-floor 1.3 brings some forty extensions) are in no composer.json and in no lock of the
+        // release. The install's composer.lock names them now; a folder the lock in the backup names too was there
+        // before and is restored, not moved.
+        $newExtDirs = $this->addedExtensionDirs($b, $listing);
+        foreach ($newExtDirs as $ld) {
+            foreach (Fs::walk($this->root . '/' . $ld) as $r) {
+                $extra[] = $ld . '/' . $r;
+            }
+        }
         if ($dryRun) {
             $done['would_move_aside'] = array_merge($added, $extra);
             $done['would_restore'] = (int) $b['files']['count'];
@@ -120,6 +163,9 @@ final class Rollback
         foreach ($extra as $p) {
             Guard::guardedMoveAside($this->root, $p, $aside);
             $done['moved_aside'][] = $p;
+        }
+        foreach ($newExtDirs as $ld) {
+            Guard::guardedRemoveEmptyDirs($this->root, $ld);
         }
         $this->say('rollback: restoring ' . $b['files']['count'] . ' file(s)');
         $n = 0;

@@ -323,18 +323,31 @@ final class Plan
             }
         }
         foreach ([$root . '/composer.lock', $tree . '/composer.lock'] as $lock) {
-            if (!is_file($lock)) {
+            if (is_file($lock)) {
+                $dirs = array_merge($dirs, self::lockExtensionDirs((string) file_get_contents($lock)));
+            }
+        }
+        return array_values(array_unique($dirs));
+    }
+
+    /**
+     * The extension folders (extension/<name>) of the extension packages a composer.lock names: their installer-name,
+     * else the package name after the vendor. @return list<string>
+     */
+    public static function lockExtensionDirs(string $lockJson): array
+    {
+        $j = json_decode($lockJson, true);
+        if (!is_array($j)) {
+            return [];
+        }
+        $dirs = [];
+        foreach (array_merge((array) ($j['packages'] ?? []), (array) ($j['packages-dev'] ?? [])) as $pk) {
+            if (!is_array($pk) || !in_array($pk['type'] ?? '', ['ezpublish-legacy-extension', 'exponential-legacy-extension', 'ezpublish-legacy-extension-installer'], true)) {
                 continue;
             }
-            $j = json_decode((string) file_get_contents($lock), true);
-            foreach (array_merge((array) ($j['packages'] ?? []), (array) ($j['packages-dev'] ?? [])) as $pk) {
-                if (!in_array($pk['type'] ?? '', ['ezpublish-legacy-extension', 'exponential-legacy-extension', 'ezpublish-legacy-extension-installer'], true)) {
-                    continue;
-                }
-                $name = (string) ($pk['extra']['installer-name'] ?? substr((string) $pk['name'], (int) strpos((string) $pk['name'], '/') + 1));
-                if ($name !== '' && Fs::safeRel($name)) {
-                    $dirs[] = 'extension/' . $name;
-                }
+            $name = (string) ($pk['extra']['installer-name'] ?? substr((string) ($pk['name'] ?? ''), (int) strpos((string) ($pk['name'] ?? ''), '/') + 1));
+            if ($name !== '' && Fs::safeRel($name) && strpos($name, '/') === false) {
+                $dirs[] = 'extension/' . $name;
             }
         }
         return array_values(array_unique($dirs));
