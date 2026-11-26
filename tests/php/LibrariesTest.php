@@ -117,9 +117,10 @@ return [
 $lock = json_decode(file_get_contents('composer.lock'), true);
 $lock['packages'][] = ['name' => 'acme/dep_ext', 'version' => '1.0.0', 'type' => 'ezpublish-legacy-extension'];
 $lock['packages'][] = ['name' => 'acme/named', 'version' => '1.0.0', 'type' => 'exponential-legacy-extension', 'extra' => ['installer-name' => 'named_ext']];
+$lock['packages'][] = ['name' => 'acme/legacy-named', 'version' => '1.0.0', 'type' => 'ezpublish-legacy-extension', 'extra' => ['ezpublish-legacy-extension-name' => 'legacy_named']];
 file_put_contents('composer.lock', json_encode($lock));
 file_put_contents('vendor/installed.txt', file_get_contents('composer.lock'));
-foreach (['extension/dep_ext/classes/dep.php', 'extension/dep_ext/settings/dep.ini', 'extension/named_ext/a/b/c.php'] as $f) {
+foreach (['extension/dep_ext/classes/dep.php', 'extension/dep_ext/settings/dep.ini', 'extension/named_ext/a/b/c.php', 'extension/legacy_named/ezinfo.php'] as $f) {
     @mkdir(dirname($f), 0755, true);
     file_put_contents($f, "<?php // installed by composer as a dependency\n");
 }
@@ -139,7 +140,8 @@ PHP;
         t_same(0, $x2, $err2);
         t_same($tree, t_tree($root), 'files, vendor/ and extensions back exactly');
         t_same($db, t_db($root), 'database back exactly');
-        t_true(!is_dir($root . '/extension/dep_ext') && !is_dir($root . '/extension/named_ext'), 'the added extension folders are gone');
+        t_true(!is_dir($root . '/extension/dep_ext') && !is_dir($root . '/extension/named_ext') && !is_dir($root . '/extension/legacy_named'),
+            'the added extension folders are gone (named as the legacy installer names them)');
         t_true(is_file($root . '/extension/handmade/handmade.php'), 'an extension of the install stays');
     },
 ];

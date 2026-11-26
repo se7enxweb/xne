@@ -331,8 +331,9 @@ final class Plan
     }
 
     /**
-     * The extension folders (extension/<name>) of the extension packages a composer.lock names: their installer-name,
-     * else the package name after the vendor. @return list<string>
+     * The extension folders (extension/<name>) of the extension packages a composer.lock names, as the legacy
+     * installer names them: extra.ezpublish-legacy-extension-name (se7enxweb/explayouts-api -> explayouts_api), else
+     * extra.installer-name, else the package name after the vendor. @return list<string>
      */
     public static function lockExtensionDirs(string $lockJson): array
     {
@@ -345,7 +346,8 @@ final class Plan
             if (!is_array($pk) || !in_array($pk['type'] ?? '', ['ezpublish-legacy-extension', 'exponential-legacy-extension', 'ezpublish-legacy-extension-installer'], true)) {
                 continue;
             }
-            $name = (string) ($pk['extra']['installer-name'] ?? substr((string) ($pk['name'] ?? ''), (int) strpos((string) ($pk['name'] ?? ''), '/') + 1));
+            $name = (string) ($pk['extra']['ezpublish-legacy-extension-name'] ?? $pk['extra']['installer-name']
+                ?? substr((string) ($pk['name'] ?? ''), (int) strpos((string) ($pk['name'] ?? ''), '/') + 1));
             if ($name !== '' && Fs::safeRel($name) && strpos($name, '/') === false) {
                 $dirs[] = 'extension/' . $name;
             }
