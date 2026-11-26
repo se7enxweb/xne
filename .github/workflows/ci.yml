@@ -71,7 +71,7 @@ jobs:
       - uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
-          extensions: pdo_sqlite, sqlite3, zlib, openssl, curl, mbstring, intl, gd, xsl, zip, fileinfo, exif
+          extensions: pdo_sqlite, sqlite3, zlib, openssl, curl, mbstring, intl, gd, xsl, zip, fileinfo, exif, sockets
           coverage: none
           ini-values: date.timezone=UTC, memory_limit=1G
       - name: composer.phar for the fixture
