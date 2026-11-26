@@ -244,6 +244,15 @@ final class Plan
 
         // traps
         $traps = self::withSharedChoice(Traps::run($det, $diff, $tree), (string) ($opt['shared'] ?? ''));
+        // the PHP extensions the target requires (its composer.json and every package of its composer.lock), checked
+        // against that PHP now: Composer would refuse them half way through the upgrade
+        $ext = PhpExtensions::check($tree, $php['binary']);
+        $d['php_extensions'] = $ext;
+        if ($ext['missing'] !== []) {
+            $traps[] = self::extensionTrap($ext);
+        } elseif ($php['binary'] !== null && $ext['required'] !== [] && !$ext['checked']) {
+            $warnings[] = 'could not list the extensions of ' . $php['binary'] . ' (php -m failed): the target requires ' . implode(', ', array_keys($ext['required']));
+        }
         $accept = array_filter(array_map('trim', explode(',', (string) ($opt['accept'] ?? ''))), 'strlen');
         $d['traps'] = $traps;
         foreach (Traps::blocking($traps, $accept) as $t) {
@@ -273,6 +282,31 @@ final class Plan
         $d['warnings'] = $warnings;
         $p->data = $d;
         return $p;
+    }
+
+    /**
+     * The blocking trap for missing PHP extensions, with the php.ini line for Linux and Windows.
+     * @param array<string,mixed> $ext the result of PhpExtensions::check()
+     * @return array{id: string, level: string, message: string, fix: string}
+     */
+    public static function extensionTrap(array $ext): array
+    {
+        $names = [];
+        $lin = [];
+        $win = [];
+        foreach ($ext['missing'] as $e => $m) {
+            $names[] = $e . ' (required by ' . implode(', ', array_slice($m['required_by'], 0, 3)) . (count($m['required_by']) > 3 ? ', ...' : '') . ')';
+            $lin[] = $m['linux'];
+            $win[] = $m['windows'];
+        }
+        return [
+            'id' => 'php-extension-missing',
+            'level' => 'block',
+            'message' => 'the target requires PHP extension(s) that ' . $ext['php'] . ' does not load: ' . implode('; ', $names)
+                . '; Composer would refuse the libraries stage and the new vendor/ would stop every request',
+            'fix' => 'enable them in ' . ($ext['ini'] !== '' ? $ext['ini'] : 'the php.ini of that PHP (php --ini)') . ' and in the web server\'s PHP, then plan again. Linux: '
+                . implode('; ', $lin) . '. Windows: ' . implode('; ', $win),
+        ];
     }
 
     /**

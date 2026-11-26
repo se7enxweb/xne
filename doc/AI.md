@@ -83,6 +83,7 @@ Important fields:
 | plan | `result.database.mode` | `kernel` (the kernel's `exp:upgrade` stages) or `sql` (the update files listed in `sql_files`) |
 | plan | `result.traps[]` | `{id, level: info|warn|block, message, fix}` |
 | plan | `result.blocked[]` | reasons the upgrade would be refused; empty when it may run |
+| plan | `result.php_extensions.{required,missing,php,ini}` | the PHP extensions the target requires (and by whom), those the chosen PHP lacks with the `php.ini` line for Linux and Windows; a missing one blocks as trap `php-extension-missing` |
 | upgrade | `result.ok`, `result.from`, `result.to` | the outcome |
 | upgrade | `result.backup.{id,dir}` | the backup to roll back to |
 | upgrade | `result.kept_aside[]` | local edits replaced; their copies are in `<backup dir>/kept/` |
