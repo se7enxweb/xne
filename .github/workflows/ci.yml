@@ -1,0 +1,94 @@
+# xne CI: the unit suite on Linux (PHP 7.4 and 8.5) and Windows (PHP 8.1, the oldest PHP the kernel's own tools run
+# with, and 8.5; a Linux runner has a second PHP for the kernel's tools, a Windows runner only one), and on Windows the real-release
+# integration: Exponential v6.0.13 and v6.0.14 from GitHub, composer install, an SQLite install, then plan, dry run,
+# upgrade 6.0.13 -> 6.0.14 and an exact rollback through xne, and plan and dry run 6.0.14 -> main, on the Windows runner.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    name: unit (${{ matrix.os }}, PHP ${{ matrix.php }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-24.04, php: '7.4' }
+          - { os: ubuntu-24.04, php: '8.5' }
+          - { os: windows-2022, php: '8.1' }
+          - { os: windows-2025, php: '8.5' }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: pdo_sqlite, sqlite3, zlib, openssl, curl, mbstring
+          coverage: none
+          ini-values: date.timezone=UTC
+      - name: Syntax check
+        shell: bash
+        run: |
+          for f in bin/xne cronjobs/xne-check-all $(find lib classes tests extension -name '*.php'); do php -l "$f" >/dev/null || exit 1; done
+          echo "PASS: every PHP file parses"
+      - name: Unit tests
+        run: php tests/run.php
+      - name: Launchers (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          call bin\xne.bat version || exit /b 1
+          call bin\xne.bat help upgrade || exit /b 1
+          powershell -NoProfile -ExecutionPolicy Bypass -File bin\xne.ps1 version || exit /b 1
+
+  windows-real:
+    name: real release (${{ matrix.os }}, PHP ${{ matrix.php }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-2025]
+        php: ['8.5']
+    env:
+      XNE_IT_DIR: ${{ github.workspace }}\..\xne-it
+      XNE_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      COMPOSER_NO_INTERACTION: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: pdo_sqlite, sqlite3, zlib, openssl, curl, mbstring, intl, gd, xsl, zip, fileinfo, exif
+          coverage: none
+          ini-values: date.timezone=UTC, memory_limit=1G
+      - name: composer.phar for the fixture
+        shell: pwsh
+        run: |
+          $phar = Join-Path $env:RUNNER_TEMP 'composer.phar'
+          Invoke-WebRequest https://getcomposer.org/download/latest-stable/composer.phar -OutFile $phar
+          "XNE_IT_COMPOSER=$phar" >> $env:GITHUB_ENV
+          "XNE_IT_PHP=$((Get-Command php).Source)" >> $env:GITHUB_ENV
+      - name: Real Exponential releases on Windows (plan, dry run, upgrade, rollback)
+        # the full 6.0.14 -> main upgrade is left out on Windows until the kernel's autoload generator excludes test
+        # folders there (it loads extension tests/ files and the kernel step fails; xne then rolls back exactly)
+        run: 'php tests/run.php "stable channel|sqlite: plan --json and dry run"'
+      - name: Kernel logs of the test installs (on failure)
+        if: failure()
+        shell: pwsh
+        run: |
+          Get-ChildItem -Path "$env:XNE_IT_DIR\installs" -Recurse -Include *.log -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match '\\var\\log\\' } |
+            ForEach-Object { "=== $($_.FullName)"; Get-Content $_.FullName -Tail 60 }

@@ -1,0 +1,10 @@
+[Unit]
+Description=xne: release index rebuild every 30 minutes (only on the API node)
+
+[Timer]
+OnCalendar=*:0/30
+RandomizedDelaySec=5m
+Persistent=true
+
+[Install]
+WantedBy=timers.target

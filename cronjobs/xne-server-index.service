@@ -1,0 +1,9 @@
+[Unit]
+Description=xne: rebuild the Exponential Network release index (server_data/index.json)
+Documentation=file:///opt/xne/doc/server.md
+
+[Service]
+Type=oneshot
+Nice=15
+IOSchedulingClass=idle
+ExecStart=/usr/local/bin/xne server:index

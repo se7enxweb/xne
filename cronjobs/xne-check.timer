@@ -1,0 +1,10 @@
+[Unit]
+Description=xne daily check (phase 2 wires the notification; not installed by default)
+
+[Timer]
+OnCalendar=*-*-* 05:20:00
+RandomizedDelaySec=30m
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,9 @@
+[Unit]
+Description=xne daily check of the Exponential installs listed in /etc/xne/installs (plan only, never upgrades)
+Documentation=file:///opt/xne/doc/README.md
+
+[Service]
+Type=oneshot
+Nice=15
+IOSchedulingClass=idle
+ExecStart=/opt/xne/cronjobs/xne-check-all

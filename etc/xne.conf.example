@@ -1,0 +1,76 @@
+# xne.conf: the server-wide settings of xne (Exponential Network client).
+# Copy to /etc/xne/xne.conf (or point XNE_CONF at another file). key=value, # comments.
+# Order (later wins): built-in defaults < <package>/etc/xne.conf < /etc/xne/xne.conf (XNE_CONF)
+#   < the install's settings/override/xne.ini.append.php [NetworkSettings] < XNE_<KEY> environment < command line.
+# Secrets (tokens) are never written here: name the 0600 file that holds them (*_token_file).
+
+# Where backups, locks and the per-install state live (default /var/lib/xne as root, ~/.xne/lib otherwise).
+#state_dir=/var/lib/xne
+# The release cache: index lists and extracted release trees (default /var/cache/xne as root).
+#cache_dir=/var/cache/xne
+
+# Release sources in rank order (owner Q5): the first that answers is used. gitlab is skipped until a project is set.
+sources=gitlab,github,packagist
+github_repo=se7enxweb/exponential
+#github_token_file=/etc/xne/github.token
+gitlab_url=https://gitlab.com
+gitlab_project=
+#gitlab_token_file=/etc/xne/gitlab.token
+packagist_package=se7enxweb/exponential
+# A local release folder (index.json + <ref>.tar.gz), for air-gapped servers; add "local" to sources to use it.
+#local_source=/srv/xne-releases
+# Seconds a source's ref list is reused before it is fetched again.
+index_ttl=3600
+
+# Channel (Q18): stable | beta (alpha, beta, rc too) | main (nightly, F2: warns, backup forced) | security (same x.y line)
+channel=stable
+# Method (Q6): auto (git for git checkouts, filepatch for plain files) | filepatch | git | composer (phase 3)
+method=auto
+# Visitors during an upgrade (F4): keep (keep serving, the default) | page (the kernel's 503 maintenance page,
+# admins can still sign in; needs bin/php/maintenance.php, Exponential 6.0.15 or newer)
+maintenance=keep
+maintenance_until=30m
+# Backups kept per install (the newest N; older ones are removed by the guarded rotation).
+backup_keep=5
+
+# The PHP that runs the install's own tools (default: this PHP when 8.1+, else php on PATH).
+#php=/usr/bin/php
+# As root, the install's tools run as the owner of index.php (runuser). run_as=root runs them as root
+# with --allow-root-user; run_as=<user> names the user.
+run_as=auto
+# After the files and the database: ezcache (autoloads + one --clear-tag per tag) | velocity (also exp:velocity
+# deploy: PHP-FPM reload and Velocity restart) | none
+finish=ezcache
+cache_tags=ini,template,content
+# Database steps: auto (the kernel's exp:upgrade when the target has it, else the SQL update files) | kernel | sql | none
+db_upgrade=auto
+# The kernel's libraries stage (Composer) when the target's composer.lock differs: auto | skip
+libraries=auto
+# Pages that must answer 200-399 after an upgrade (comma list); empty = no URL check.
+health_url=
+# Paths a file patch never writes (comma list).
+protect=settings/override,settings/siteaccess,var,config.php,config.cluster.php,.htaccess
+# Longest run of one kernel tool, in seconds.
+timeout=3600
+
+# ---- phase 2: Exponential Network server, keys, notifications, mirror (doc/server.md) ----------------------------
+# The API that "xne check" and "xne report" talk to; empty = only the release sources (no advisories).
+network_url=https://network.se7enx.com/api/v1
+# What "xne report" sends (the key's level on the server trims it further): version | health | full
+report_level=health
+# Notifications of "xne check": auto (run the notify hooks that are set) | none
+notify=auto
+# Notify hooks: command lines started without a shell. "..." keeps spaces in one word; {state} {key} {install}
+# {version} {title} {severity} {security} {action} {channels} {advisories} {body} are replaced in each word, and the
+# same values are in the hook's environment as XNE_NOTIFY_<NAME> (doc/server.md, "Notify hooks").
+# Runs while an upgrade or a security advisory is open (on every check):
+#notify_problem_cmd=/usr/local/bin/my-alert open --key {key} --severity {severity} --title {title}
+# Runs when the install is clean, to resolve the problem:
+#notify_ok_cmd=/usr/local/bin/my-alert close --key {key}
+# Runs once per check while something is open:
+#notify_event_cmd=/usr/local/bin/my-chat-post --subject {title} --body {body}
+# Server side (the API node): the data folder (index, advisories, keys, reports), mode 0700.
+server_data=/var/lib/xne-server
+# The GitLab release mirror (xne server:mirror, on the mirror node only).
+mirror_from=https://github.com/se7enxweb/exponential.git
+#mirror_to=git@gitlab.com:your-group/exponential.git

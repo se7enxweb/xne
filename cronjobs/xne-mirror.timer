@@ -1,0 +1,10 @@
+[Unit]
+Description=xne: GitLab release mirror, hourly (only on the node that keeps the mirror)
+
+[Timer]
+OnCalendar=hourly
+RandomizedDelaySec=10m
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,26 @@
+#!/usr/bin/env php
+<?php
+// xne, the Exponential Network client: detect, plan, backup, upgrade and roll back an Exponential install.
+// Pure PHP 7.4 to 8.5, no shell tools needed by the engine. Manual: doc/cli.md. Exit 0 PASS, 1 FAIL, 2 usage, 3 refused.
+declare(strict_types=1);
+
+if (PHP_VERSION_ID < 70400) {
+    fwrite(STDERR, "xne needs PHP 7.4 or newer (this is " . PHP_VERSION . ")\n");
+    exit(2);
+}
+if (ini_get('date.timezone') === '' || ini_get('date.timezone') === false) {
+    $tz = @readlink('/etc/localtime');
+    $tz = is_string($tz) && preg_match('#zoneinfo/(.+)$#', $tz, $m) ? $m[1] : 'UTC';
+    @date_default_timezone_set($tz) || date_default_timezone_set('UTC');
+}
+set_time_limit(0);
+$home = dirname(__DIR__, 1);
+$self = realpath(__FILE__);
+if ($self !== false) {
+    $home = dirname($self, 2);
+}
+require $home . '/lib/Xne/Autoload.php';
+\Xne\Autoload::register($home);
+$args = $argv;
+array_shift($args);
+exit((new \Xne\Console\App($home))->run(array_values($args)));

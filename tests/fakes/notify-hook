@@ -1,0 +1,9 @@
+#!/usr/bin/env php
+<?php
+// test stand-in for a notify hook: appends its arguments and its XNE_NOTIFY_STATE as one JSON line to $XNE_FAKE_LOG
+$log = getenv('XNE_FAKE_LOG');
+if ($log) {
+    file_put_contents($log, json_encode(array_merge(['state=' . getenv('XNE_NOTIFY_STATE')], array_slice($argv, 1))) . "\n", FILE_APPEND);
+}
+echo "PASS\n";
+exit(0);

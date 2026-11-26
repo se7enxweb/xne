@@ -1,0 +1,38 @@
+{
+    "name": "se7enxweb/xne",
+    "description": "xne (Exponential Network): safe, verified upgrades for Exponential installs. Detect, plan, verified backup, upgrade and automatic rollback, on Linux, macOS and Windows, in pure PHP.",
+    "type": "library",
+    "license": "GPL-2.0-or-later",
+    "keywords": ["exponential", "cms", "upgrade", "rollback", "backup", "cli", "windows"],
+    "homepage": "https://github.com/se7enxweb/xne",
+    "authors": [
+        {"name": "7x", "email": "info@se7enx.com", "homepage": "https://se7enx.com"}
+    ],
+    "support": {
+        "issues": "https://github.com/se7enxweb/xne/issues",
+        "source": "https://github.com/se7enxweb/xne",
+        "docs": "https://github.com/se7enxweb/xne/tree/main/doc"
+    },
+    "require": {
+        "php": ">=7.4",
+        "ext-json": "*",
+        "ext-pcre": "*",
+        "ext-zlib": "*"
+    },
+    "suggest": {
+        "ext-curl": "HTTPS downloads of releases (else PHP streams with openssl)",
+        "ext-openssl": "HTTPS downloads of releases without curl",
+        "ext-pdo_mysql": "MySQL and MariaDB installs",
+        "ext-pdo_pgsql": "PostgreSQL installs",
+        "ext-pdo_sqlite": "SQLite installs",
+        "ext-mongodb": "MongoDB installs",
+        "ext-oci8": "Oracle installs"
+    },
+    "autoload": {
+        "psr-4": {"Xne\\": ["lib/Xne/", "classes/Xne/"]}
+    },
+    "bin": ["bin/xne"],
+    "archive": {
+        "exclude": ["/tests", "/var", "/.github"]
+    }
+}

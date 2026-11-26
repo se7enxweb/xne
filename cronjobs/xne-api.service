@@ -1,0 +1,17 @@
+[Unit]
+Description=xne: the Exponential Network API v1 (own PHP-FPM, socket /run/xne-api/fpm.sock for exp-site-proxy)
+Documentation=file:///opt/xne/doc/server.md
+After=network.target
+
+[Service]
+Type=simple
+RuntimeDirectory=xne-api
+RuntimeDirectoryMode=0755
+LogsDirectory=xne-api
+ExecStart=/usr/sbin/php-fpm --nodaemonize --fpm-config /opt/xne/server/xne-api-fpm.conf
+ExecReload=/bin/kill -USR2 $MAINPID
+Restart=on-failure
+Nice=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,35 @@
+#!/usr/bin/env php
+<?php
+// Runs "xne plan --json" (and "xne check", which notifies) for every install root listed in /etc/xne/installs (one path per line, # comments) and
+// prints one line per install: up to date, an upgrade available, or blocked. Read-only. Phase 2 sends the result
+// to network.se7enx.com and the notifications; phase 3 adds the security auto-apply. Exit 1 when a plan failed.
+declare(strict_types=1);
+$list = getenv('XNE_INSTALLS') ?: '/etc/xne/installs';
+$xne = dirname(__DIR__) . '/bin/xne';
+$fail = 0;
+foreach (is_file($list) ? file($list, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) : [] as $root) {
+    $root = trim($root);
+    if ($root === '' || $root[0] === '#') {
+        continue;
+    }
+    $p = proc_open([PHP_BINARY, $xne, 'plan', '--root=' . $root, '--json'], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+    $out = stream_get_contents($pipes[1]);
+    stream_get_contents($pipes[2]);
+    $code = proc_close($p);
+    $j = json_decode((string) $out, true);
+    $r = $j['result'] ?? [];
+    if ($code === 1 || $code === 2 || !is_array($j)) {
+        $fail++;
+        echo "FAIL     $root: " . ($r['error'] ?? 'no answer') . "\n";
+    } elseif (!empty($r['up_to_date'])) {
+        echo "CURRENT  $root: " . $r['install']['version'] . "\n";
+    } else {
+        echo ($code === 3 ? 'BLOCKED  ' : 'UPGRADE  ') . "$root: " . $r['install']['version'] . ' -> ' . ($r['target']['version'] ?? '?') . "\n";
+    }
+    // the advisories and the notification (the notify hooks: problem while open, ok once clean, an event): xne check
+    $c = proc_open([PHP_BINARY, $xne, 'check', '--root=' . $root, '--json'], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $cp);
+    stream_get_contents($cp[1]);
+    stream_get_contents($cp[2]);
+    proc_close($c);
+}
+exit($fail ? 1 : 0);

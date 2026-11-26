@@ -1,0 +1,18 @@
+#!/usr/bin/env php
+<?php
+// test stand-in for ssh: drops the -o options and the host, then runs the remote command here, with "xne" being this
+// package's bin/xne and the server data folder of the "peer" (XNE_PEER_DATA). stdin passes through.
+$args = array_slice($argv, 1);
+while ($args && $args[0] === '-o') {
+    array_splice($args, 0, 2);
+}
+array_shift($args);
+if (($args[0] ?? '') === 'xne') {
+    $args[0] = dirname(__DIR__, 2) . '/bin/xne';
+    array_unshift($args, PHP_BINARY);
+}
+$env = getenv();
+$env['XNE_SERVER_DATA'] = (string) getenv('XNE_PEER_DATA');
+$env['XNE_SERVER_PEERS'] = '';
+$p = proc_open($args, [0 => STDIN, 1 => STDOUT, 2 => STDERR], $pipes, null, $env);
+exit(proc_close($p));
