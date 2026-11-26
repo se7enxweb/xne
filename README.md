@@ -1,6 +1,6 @@
 # xne: Exponential Network
 
-[![Version](https://img.shields.io/badge/xne-0.3.0.9-2b6cb0)](#versioning)
+[![Version](https://img.shields.io/badge/xne-0.3.0.10-2b6cb0)](#versioning)
 [![PHP](https://img.shields.io/badge/PHP-7.4%20to%208.5-8892BF?logo=php&logoColor=white)](https://php.net)
 [![Engines](https://img.shields.io/badge/databases-MySQL%20%7C%20PostgreSQL%20%7C%20SQLite%20%7C%20MongoDB%20%7C%20Oracle-4a5568)](doc/engines.md)
 [![API](https://img.shields.io/badge/API-network.se7enx.com%2Fapi%2Fv1-38a169)](#the-api)
@@ -251,10 +251,15 @@ What xne never does:
 
 ## Versioning
 
-Four positions, `X.Y.Z.N`: currently **0.3.0.9** (`App::VERSION`, the `VERSION` file, `xne version`, every `--json`
-result and `GET /api/v1/status`). Only the last position counts on: 0.3.0.9 -> 0.3.0.10. Tags are permanent:
+Four positions, `X.Y.Z.N`: currently **0.3.0.10** (`App::VERSION`, the `VERSION` file, `xne version`, every `--json`
+result and `GET /api/v1/status`). Only the last position counts on: 0.3.0.10 -> 0.3.0.11. Tags are permanent:
 a published version is never moved or re-cut; a fix is always the next version.
 
+- **0.3.0.10** (2026-11-26): `xne plan` and the upgrade preflight check the PHP extensions the target release
+  requires (`ext-*` of its composer.json, its composer.lock platform and every package the lock installs, never the
+  dev ones) against the PHP its tools and Composer run with, and block with trap `php-extension-missing` before
+  anything changes, naming each extension, who requires it, the loaded php.ini and the line to add on Linux and
+  Windows (`extension=sockets`). Exponential main requires ext-sockets; before, Composer refused it half way.
 - **0.3.0.9** (2026-11-26): a rollback moves aside the extension folders Composer added for a dependency of an
   updated package (named only by the install's composer.lock afterwards, as exponential-php-floor 1.3 brings some
   forty extensions), and extension folders are named as the legacy installer names them
