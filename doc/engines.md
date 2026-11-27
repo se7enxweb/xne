@@ -20,6 +20,12 @@ without a backup. Proven by `LibrariesTest` (a fake kernel with the kernel's sta
 `xne rollback` and an automatic rollback restore files, vendor/ and database exactly; all 46 unit tests pass). Not yet
 rerun on a real Oracle install: the throwaway install from that proof no longer exists on this node.
 
+**Sites over ODBC (kernel 6.0.15, `DatabaseImplementation=odbc`).** ODBC is only the site's transport: xne reads
+`[ODBCSettings] Dialect` and treats the install as that engine (`postgresql`, `mysql`), backing it up and rolling it
+back through the engine's own PDO driver against the same server (PHP running xne needs `pdo_pgsql` or `pdo_mysql`).
+`sqlserver`, `db2` and `msaccess` over ODBC are refused as their native drivers are (no verified xne backup yet).
+Unit test: `DbTest` (a site over ODBC is its dialect's engine). Not yet proven by an integration upgrade.
+
 xne backs up, upgrades and rolls back the database of an Exponential install with the install's own
 `[DatabaseSettings]` (`settings/site.ini`, the siteaccess, `settings/override`; the password is never shown). Every
 backup is verified before anything changes, and a rollback is exact: the tests compare a fingerprint of every table

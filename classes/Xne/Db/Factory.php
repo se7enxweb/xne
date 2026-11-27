@@ -9,7 +9,9 @@ use Xne\XneException;
 /**
  * Reads [DatabaseSettings] of the install the way the kernel does (settings/site.ini, then the siteaccess, then
  * settings/override wins) and returns the driver of each distinct database. Drives MySQL/MariaDB,
- * PostgreSQL, SQLite, MongoDB and Oracle.
+ * PostgreSQL, SQLite, MongoDB and Oracle. A site reached over ODBC (DatabaseImplementation=odbc, kernel 6.0.15) is
+ * its [ODBCSettings] Dialect's engine: ODBC is only the site's transport, the backup reads the same server through
+ * the engine's own PDO driver.
  */
 final class Factory
 {
@@ -19,6 +21,24 @@ final class Factory
         'ezsqlite3' => 'sqlite', 'sqlite' => 'sqlite', 'sqlite3' => 'sqlite',
         'ezoracle' => 'oracle', 'oracle' => 'oracle', 'expmongodb' => 'mongodb', 'mongodb' => 'mongodb',
     ];
+
+    /** [ODBCSettings] Dialect (and its other names) => engine, for DatabaseImplementation=odbc */
+    public const ODBC_DIALECTS = [
+        'postgresql' => 'postgresql', 'pgsql' => 'postgresql', 'postgres' => 'postgresql',
+        'mysql' => 'mysql', 'mariadb' => 'mysql', 'mysqli' => 'mysql',
+        'sqlserver' => 'sqlserver', 'mssql' => 'sqlserver', 'sqlsrv' => 'sqlserver',
+        'db2' => 'db2', 'sqlite' => 'sqlite', 'oracle' => 'oracle', 'msaccess' => 'msaccess', 'access' => 'msaccess',
+    ];
+
+    /** The engine of an implementation (pure); for odbc the dialect's, 'unknown' for anything else. */
+    public static function engineOf(string $implementation, string $dialect = ''): string
+    {
+        $implementation = strtolower(trim($implementation));
+        if ($implementation === 'odbc') {
+            return self::ODBC_DIALECTS[strtolower(trim($dialect))] ?? 'unknown';
+        }
+        return self::ENGINES[$implementation] ?? 'unknown';
+    }
 
     /**
      * Every distinct database the install uses: the global one first, then any a siteaccess uses instead.
@@ -68,7 +88,7 @@ final class Factory
         $impl = strtolower((string) $ini->get('DatabaseSettings', 'DatabaseImplementation', 'ezmysqli'));
         $s = [
             'implementation' => $impl,
-            'engine' => self::ENGINES[$impl] ?? 'unknown',
+            'engine' => self::engineOf($impl, (string) $ini->get('ODBCSettings', 'Dialect', '')),
             'server' => (string) $ini->get('DatabaseSettings', 'Server', ''),
             'port' => (string) $ini->get('DatabaseSettings', 'Port', ''),
             'user' => (string) $ini->get('DatabaseSettings', 'User', ''),
@@ -76,6 +96,9 @@ final class Factory
             'database' => (string) $ini->get('DatabaseSettings', 'Database', ''),
             'socket' => (string) $ini->get('DatabaseSettings', 'Socket', ''),
         ];
+        if ($impl === 'odbc') {
+            $s['transport'] = 'odbc';
+        }
         if ($s['engine'] === 'sqlite') {
             $db = $s['database'];
             $s['file'] = ($db !== '' && ($db[0] === '/' || $db[0] === '\\' || preg_match('#^[A-Za-z]:[/\\\\]#', $db))) ? $db : $root . '/var/storage/sqlite3/' . $db;

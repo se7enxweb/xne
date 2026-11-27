@@ -52,6 +52,23 @@ return [
         t_same(1, count($l));
         t_same('main', $l[0]['database']);
     },
+    'a site over ODBC is its dialect\'s engine; SQL Server and Access over ODBC are refused like their native drivers' => static function (): void {
+        $s = t_scratch('dbset-odbc');
+        \Xne\Fs::atomicWrite($s . '/settings/site.ini', "[DatabaseSettings]\nDatabaseImplementation=ezmysqli\n");
+        \Xne\Fs::atomicWrite($s . '/settings/override/site.ini.append.php', "<?php /*\n[DatabaseSettings]\nDatabaseImplementation=odbc\nServer=db\nDatabase=site\nUser=u\n[ODBCSettings]\nDialect=postgresql\nDriver=PostgreSQL Unicode\n*/ ?>\n");
+        $l = Factory::settings($s);
+        t_same('postgresql', $l[0]['engine']);
+        t_same('odbc', $l[0]['implementation']);
+        t_same('odbc', $l[0]['transport']);
+        t_true(Factory::driver($l[0]) instanceof \Xne\Db\Pgsql);
+        t_same('mysql', Factory::engineOf('odbc', 'MariaDB'));
+        t_same('sqlserver', Factory::engineOf('ODBC', 'mssql'));
+        t_same('unknown', Factory::engineOf('odbc', ''));
+        t_same('postgresql', Factory::engineOf('ezpostgresql', 'mysql'));
+        t_throws(\Xne\XneException::class, static function (): void {
+            Factory::driver(['engine' => 'sqlserver', 'implementation' => 'odbc', 'database' => 'x']);
+        }, 'SQL Server over ODBC has no verified xne backup, as SQL Server has none');
+    },
     'SQLite: backup copy verifies, restore brings back data and drops later tables' => static function (): void {
         $s = t_scratch('sqlite');
         t_fake_install($s . '/i');
