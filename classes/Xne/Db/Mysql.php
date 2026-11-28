@@ -72,10 +72,9 @@ final class Mysql extends Driver
         foreach ($this->tables() as $t) {
             $ddl = (string) $pdo->query('SHOW CREATE TABLE ' . $this->quoteIdent($t))->fetch(\PDO::FETCH_NUM)[1];
             $emit($ddl);
-            $st = $pdo->query('SELECT * FROM ' . $this->quoteIdent($t));
             $batch = [];
             $size = 0;
-            while (($row = $st->fetch(\PDO::FETCH_NUM)) !== false) {
+            $this->eachRow('SELECT * FROM ' . $this->quoteIdent($t), function (array $row) use ($emit, $t, &$batch, &$size): void {
                 $vals = [];
                 foreach ($row as $v) {
                     $vals[] = $this->literal($v);
@@ -88,8 +87,7 @@ final class Mysql extends Driver
                     $batch = [];
                     $size = 0;
                 }
-            }
-            $st->closeCursor();
+            });
             if ($batch) {
                 $emit('INSERT INTO ' . $this->quoteIdent($t) . ' VALUES ' . implode(',', $batch), $t, count($batch));
             }

@@ -50,6 +50,13 @@ or collection (and sequence) before the backup and after the restore.
 | MongoDB | `expmongodb` | mongodb | `db.mongo.jsonl.gz`: indexes and documents as canonical extended JSON (every BSON type exact) | the kernel's exp:upgrade only (6.0.15 and newer) | collections dropped, indexes and documents recreated |
 | Oracle | `ezoracle` | oci8 | `db.oracle.jsonl.gz`: DDL from DBMS_METADATA (tables, sequences at their positions, indexes, triggers), rows with CLOB/BLOB whole; no expdp, RMAN or server directory | the kernel's exp:upgrade (through ezoracle) only | tables purged, recreated, rows bound back, then indexes and triggers |
 
+Memory stays bounded whatever the size of the database (since 0.3.0.14): rows are read through a server-side cursor
+(PostgreSQL, 500 rows at a time, in one read-only REPEATABLE READ transaction, also through pgbouncer) or an
+unbuffered result (MySQL), Oracle with OCI fetches and MongoDB with a cursor, and written to the gzip file in
+statements of at most 200 rows or about 1 MB. The verification and the restore read the dump back one statement (or
+line) at a time. Before 0.3.0.14 the PostgreSQL dump held a whole table in libpq's memory, outside PHP's
+`memory_limit` (see [troubleshooting.md](troubleshooting.md)).
+
 When xne's own PHP lacks the extension, name one that has it: `xne upgrade --root=... --php=/usr/bin/php`
 (xne then runs itself under that PHP). An install whose siteaccesses use more than one database is refused
 (`several-databases`).

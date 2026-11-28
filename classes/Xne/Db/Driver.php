@@ -10,6 +10,10 @@ use Xne\XneException;
  * A dump is xne's own framed SQL file (gzip): every statement is preceded by a line "-- xne-stmt <bytes>", so the
  * restore reads statements back exactly, whatever their content; the counts of rows per table are written into the
  * dump and into its meta file, and a dump is verified by reading it to its end mark and recounting.
+ *
+ * Memory stays bounded whatever the size of the database (since 0.3.0.14): rows are read through eachRow() (a
+ * server-side cursor on PostgreSQL, an unbuffered result on MySQL) and written to the gzip file in statements of at
+ * most 200 rows or about 1 MB; the verification and the restore read the dump back one statement at a time.
  */
 abstract class Driver
 {
@@ -108,22 +112,49 @@ abstract class Driver
         $out = [];
         foreach ($this->tables() as $t) {
             $cols = $this->columns($t);
-            $st = $this->pdo()->query($this->orderedSelect($t, $cols));
             $ctx = hash_init('md5');
             $n = 0;
-            while (($row = $st->fetch(\PDO::FETCH_NUM)) !== false) {
+            $this->eachRow($this->orderedSelect($t, $cols), function (array $row) use ($ctx, &$n): void {
                 $n++;
                 foreach ($row as $v) {
                     hash_update($ctx, $this->norm($v) . "\x1f");
                 }
                 hash_update($ctx, "\x1e");
-            }
+            });
             $out[$t] = ['rows' => $n, 'md5' => hash_final($ctx)];
         }
         ksort($out);
         return $out;
     }
 
+
+    /**
+     * Runs a SELECT and hands every row (FETCH_NUM) to $onRow without holding the result set in memory: the dump of
+     * a table of any size stays within a small, bounded amount of memory. The default reads the PDO statement row by
+     * row, which streams on a connection that does not buffer results (MySQL is opened unbuffered); PostgreSQL
+     * overrides it with a server-side cursor, as pdo_pgsql otherwise receives the whole result into libpq's memory.
+     */
+    protected function eachRow(string $sql, callable $onRow): void
+    {
+        $st = $this->pdo()->query($sql);
+        try {
+            while (($row = $st->fetch(\PDO::FETCH_NUM)) !== false) {
+                $onRow($row);
+            }
+        } finally {
+            $st->closeCursor();
+        }
+    }
+
+    /** Called before dumpInto(), e.g. to open one read-only snapshot for the whole dump. */
+    protected function beforeDump(): void
+    {
+    }
+
+    /** Called after dumpInto(), also when it failed ($ok false). */
+    protected function afterDump(bool $ok): void
+    {
+    }
 
     /** SELECT * of a table in a stable order (every column, left to right). @param list<string> $cols */
     protected function orderedSelect(string $table, array $cols): string
@@ -192,12 +223,20 @@ abstract class Driver
             gzwrite($gz, '-- xne-stmt ' . strlen($sql) . "\n" . $sql . "\n");
             $stmts++;
         };
-        $this->dumpInto($emit);
-        foreach ($this->tables() as $t) {
-            if (!isset($counts[$t])) {
-                $counts[$t] = 0;
+        $this->beforeDump();
+        try {
+            $this->dumpInto($emit);
+            foreach ($this->tables() as $t) {
+                if (!isset($counts[$t])) {
+                    $counts[$t] = 0;
+                }
             }
+        } catch (\Throwable $e) {
+            gzclose($gz);
+            $this->afterDump(false);
+            throw $e;
         }
+        $this->afterDump(true);
         ksort($counts);
         gzwrite($gz, '-- xne-dump-end tables=' . count($counts) . ' rows=' . array_sum($counts) . ' statements=' . $stmts . "\n");
         gzclose($gz);

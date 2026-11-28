@@ -6,7 +6,8 @@ namespace Xne\Db;
 /**
  * PostgreSQL (DatabaseImplementation ezpostgresql), schema of the connection's search_path (public). The dump is
  * built from the catalog: sequences with their positions, tables with columns and defaults, data, then constraints,
- * indexes, sequence ownership and views. The restore runs in one transaction, so it either completes or changes
+ * indexes, sequence ownership and views. Rows are read through a server-side cursor inside one read-only
+ * REPEATABLE READ transaction, so the dump is one consistent snapshot and its memory stays bounded. The restore runs in one transaction, so it either completes or changes
  * nothing.
  */
 final class Pgsql extends Driver
@@ -125,11 +126,10 @@ final class Pgsql extends Driver
             $qt = $this->quoteIdent($t);
             $emit("CREATE TABLE $qt (\n    " . implode(",\n    ", $defs) . "\n)");
             $colList = implode(', ', $names);
-            $st = $pdo->query("SELECT $colList FROM $qt");
             $batch = [];
             $size = 0;
             $ins = "INSERT INTO $qt ($colList)" . ($identity ? ' OVERRIDING SYSTEM VALUE' : '') . ' VALUES ';
-            while (($row = $st->fetch(\PDO::FETCH_NUM)) !== false) {
+            $this->eachRow("SELECT $colList FROM $qt", function (array $row) use ($emit, $t, $ins, &$batch, &$size): void {
                 $vals = [];
                 foreach ($row as $v) {
                     $vals[] = $this->literal($v);
@@ -142,7 +142,7 @@ final class Pgsql extends Driver
                     $batch = [];
                     $size = 0;
                 }
-            }
+            });
             if ($batch) {
                 $emit($ins . implode(',', $batch), $t, count($batch));
             }
@@ -180,6 +180,67 @@ final class Pgsql extends Driver
         foreach ($this->rels("'v'") as $v) {
             $def = (string) $pdo->query("SELECT pg_get_viewdef(" . $pdo->quote($v) . "::regclass, true)")->fetchColumn();
             $emit('CREATE VIEW ' . $this->quoteIdent($v) . ' AS ' . rtrim(trim($def), ';'));
+        }
+    }
+
+    /** Rows fetched per FETCH from the cursor: the most rows held in memory at once. */
+    private const FETCH_ROWS = 500;
+
+    /** @var int */
+    private $cursors = 0;
+
+    /**
+     * Through a server-side cursor, FETCH_ROWS rows at a time. pdo_pgsql runs a plain query() with libpq's PQexec,
+     * which receives the whole result set into the client's memory before the first row is read: a dump of a large
+     * table (ezsearch_object_word_link, ezcontentobject_attribute) grew xne to several GB (killed by earlyoom on
+     * 2026-11-28). A cursor needs a transaction; the dump runs in one (beforeDump), anything else gets its own. Works
+     * through pgbouncer in transaction pooling mode, as the cursor lives inside the transaction.
+     */
+    protected function eachRow(string $sql, callable $onRow): void
+    {
+        $pdo = $this->pdo();
+        $own = !$pdo->inTransaction();
+        if ($own) {
+            $pdo->beginTransaction();
+        }
+        $cur = 'xne_cursor_' . (++$this->cursors);
+        try {
+            $pdo->exec("DECLARE $cur NO SCROLL CURSOR FOR $sql");
+            do {
+                $st = $pdo->query('FETCH FORWARD ' . self::FETCH_ROWS . " FROM $cur");
+                $n = 0;
+                while (($row = $st->fetch(\PDO::FETCH_NUM)) !== false) {
+                    $n++;
+                    $onRow($row);
+                }
+                $st->closeCursor();
+                $st = null;
+            } while ($n === self::FETCH_ROWS);
+            $pdo->exec("CLOSE $cur");
+        } catch (\Throwable $e) {
+            if ($own && $pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $e;
+        }
+        if ($own) {
+            $pdo->commit();
+        }
+    }
+
+    /** The whole dump reads one snapshot (REPEATABLE READ, READ ONLY), so tables written meanwhile stay consistent. */
+    protected function beforeDump(): void
+    {
+        $pdo = $this->pdo();
+        $pdo->beginTransaction();
+        $pdo->exec('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY');
+    }
+
+    protected function afterDump(bool $ok): void
+    {
+        $pdo = $this->pdo();
+        if ($pdo->inTransaction()) {
+            $ok ? $pdo->commit() : $pdo->rollBack();
         }
     }
 

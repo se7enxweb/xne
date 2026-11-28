@@ -1,6 +1,6 @@
 # Troubleshooting xne
 
-Last verified: 2026-11-26 (xne 0.3.0.7)
+Last verified: 2026-11-28 (xne 0.3.0.14)
 
 Windows-specific messages (PHP not found, PowerShell scripts disabled, links, files held open):
 [windows-guide.md](windows-guide.md#troubleshooting-on-windows).
@@ -20,6 +20,7 @@ Windows-specific messages (PHP not found, PowerShell scripts disabled, links, fi
 | files of the install owned by root after a rollback (xne before 0.3.0.2) | the restore wrote files as root; the next run then took root for the owner and ran the kernel's tools as root | give them back to the owner (`chown` the files newer than the rollback); since 0.3.0.2 the backup records the owner and the rollback restores as that user |
 | extensions gone after a file patch (before 0.3.0.4): ezwebin, sevenx_themes_simple ... | the install's `share/filelist.md5` listed files of extensions that are Composer packages now; the patch retired them | `xne rollback` to the backup (files and database), then upgrade with 0.3.0.4 or newer: Composer's folders are left to the libraries stage |
 | `exp:upgrade failed ... 6.0.15-libraries-update ... An unexpected error has occurred` (xne before 0.3.0.5) | the kernel ran `composer` from the PATH, a wrapper that starts Composer with the server's older CLI PHP (8.0), which resolves another set and fails; the kernel's error path then stops on an older git_manager (`BackupManager::backupPath()`), which hides the message | upgrade with 0.3.0.5 or newer (it passes `--composer=<phar>`), or give `--composer=/usr/local/bin/composer.phar` |
+| xne killed (earlyoom, OOM killer, exit 137) during `backup: dumping the postgresql database`, its RSS in GB (xne before 0.3.0.14) | the PostgreSQL dump read every table with a plain query, so libpq held a whole table in memory, outside PHP's `memory_limit` | upgrade with 0.3.0.14 or newer: rows are read through a server-side cursor and the dump stays at a few tens of MB. Nothing was changed by the killed run (the backup comes before any change) and its lock went with the process; the backup folder it left has no `backup.json`, is never listed or used, and can be removed |
 | `this PHP has no PDO driver "pgsql"` | xne runs with a PHP without the database's driver | run xne with a PHP that has it: `/usr/bin/php /usr/local/bin/xne ...` |
 | `cannot connect to the ... database` | the settings in `settings/override/site.ini.append.php` do not reach the database from this node | check host, port and socket; for PostgreSQL over a local socket set `Server=/var/run/postgresql` |
 | `this PHP has no mongodb extension` / `no oci8 extension` | MongoDB or Oracle with a PHP that lacks the driver | run xne with a PHP that has it: `xne ... --php=/usr/bin/php` |

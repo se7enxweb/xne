@@ -1,7 +1,8 @@
 # xne CI: the unit suite on Linux (PHP 7.4 and 8.5) and Windows (PHP 8.1, the oldest PHP the kernel's own tools run
 # with, and 8.5; a Linux runner has a second PHP for the kernel's tools, a Windows runner only one), and on Windows the real-release
 # integration: Exponential v6.0.13 and v6.0.14 from GitHub, composer install, an SQLite install, then plan, dry run,
-# upgrade and an exact rollback through xne of 6.0.13 -> 6.0.14 and of 6.0.14 -> main, on the Windows runner.
+# upgrade and an exact rollback through xne of 6.0.13 -> 6.0.14 and of 6.0.14 -> main, on the Windows runner; and the
+# database backup in bounded memory on PostgreSQL and MySQL servers (stream).
 name: ci
 
 on:
@@ -52,6 +53,46 @@ jobs:
           call bin\xne.bat version || exit /b 1
           call bin\xne.bat help upgrade || exit /b 1
           powershell -NoProfile -ExecutionPolicy Bypass -File bin\xne.ps1 version || exit /b 1
+
+  stream:
+    # the database backup in bounded memory: a 300 MB table dumped, verified and restored, each step in a child PHP
+    # with memory_limit=128M whose peak RSS must stay under 256 MB (DbStreamTest), on PostgreSQL and MySQL servers
+    name: stream (ubuntu-24.04, PHP ${{ matrix.php }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['7.4', '8.5']
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: xne
+          POSTGRES_PASSWORD: xne-ci
+          POSTGRES_DB: xne_test_stream
+        ports: ['5432:5432']
+        options: --health-cmd "pg_isready -U xne" --health-interval 5s --health-timeout 5s --health-retries 20
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: xne-ci
+          MYSQL_DATABASE: xne_test_stream
+        ports: ['3306:3306']
+        options: --health-cmd "mysqladmin ping -h 127.0.0.1 -pxne-ci" --health-interval 5s --health-timeout 5s --health-retries 30
+    env:
+      XNE_TEST_PGSQL: '{"server":"127.0.0.1","port":"5432","user":"xne","password":"xne-ci","database":"xne_test_stream"}'
+      XNE_TEST_MYSQL: '{"server":"127.0.0.1","port":"3306","user":"root","password":"xne-ci","database":"xne_test_stream"}'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: pdo_pgsql, pdo_mysql, zlib
+          coverage: none
+          ini-values: date.timezone=UTC
+      - name: Database backup in bounded memory
+        run: php tests/run.php DbStreamTest
 
   windows-real:
     name: real release (${{ matrix.os }}, PHP ${{ matrix.php }})

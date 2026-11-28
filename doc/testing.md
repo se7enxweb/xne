@@ -1,6 +1,6 @@
 # Testing xne
 
-Last verified: 2026-11-26 (xne 0.3.0.9)
+Last verified: 2026-11-28 (xne 0.3.0.14)
 
 The tests are plain PHP (no PHPUnit): `tests/run.php` runs every `tests/php/*Test.php` and, when `XNE_IT_DIR` is
 set, every `tests/integration/*Test.php`. Each file returns a map "test name" => callable; a test passes when it
@@ -20,6 +20,7 @@ make test                                # = php tests/run.php
 | `CoreTest` | versions (6.0.4.10 after 6.0.4.9, pre-releases), the INI reader, filelist.md5, settings precedence, the option parser, `php -l` of every file and a PHP 7.4 syntax guard |
 | `TarTest` | the tar.gz writer and reader (long names, links, binary, empty files), damaged archives |
 | `DbTest` | the SQL splitter, database settings with siteaccesses, the SQLite backup/verify/restore round trip, refusing Oracle/MongoDB |
+| `DbStreamTest` | the database backup in bounded memory: a table of `XNE_TEST_STREAM_MB` (300) MB dumped, verified and restored, each step in a child PHP with `memory_limit=128M` whose peak RSS must stay under `XNE_TEST_STREAM_RSS_MB` (256), and the fingerprint equal after the restore. Runs only against a server named by `XNE_TEST_PGSQL` / `XNE_TEST_MYSQL` (JSON settings; the database name must start with `xne_test_`, it is emptied); CI job `stream` |
 | `PlanTest` | the file diff (add, update, local edit, retire, kept, protected, shared), channels, the SQL file chain |
 | `LibrariesTest` | a fake kernel (upgrade.php and upgradestatus.php stand-ins with the kernel's stage order rule) reporting its libraries stage pending with an unchanged composer.lock: the plan puts libraries before database, the upgrade runs it, `xne rollback` and an automatic rollback give back files, vendor/ and database exactly, an extension folder Composer added for a dependency (named only by the install's composer.lock afterwards) is moved aside by the rollback, and `libraries=skip` leaves it out |
 | `GuardTest` | **the safety grep**: no `unlink`, `rmdir`, shell or `rm` anywhere except the guarded functions of `Guard.php`; `rename` only for atomic writes; the guard's refusals |
@@ -32,6 +33,7 @@ make test                                # = php tests/run.php
 | Job | Runner | What |
 |---|---|---|
 | unit | ubuntu-24.04 with PHP 7.4 and 8.5, windows-2022 with PHP 8.1, windows-2025 with PHP 8.5 | `php -l` of every file, the whole unit suite (`php tests/run.php`), and on Windows `xne.bat` and `xne.ps1` started by hand |
+| stream | ubuntu-24.04, PHP 7.4 and 8.5, PostgreSQL 17 and MySQL 8.4 service containers | `DbStreamTest`: the backup of a 300 MB table in bounded memory on both servers |
 | real release | windows-2022 and windows-2025, PHP 8.5 | the integration fixture on Windows: Exponential v6.0.13 and v6.0.14 from GitHub, `composer install`, SQLite installs; 6.0.13 -> 6.0.14 planned, dry-run, upgraded through the SQL path and rolled back exactly (files and database fingerprints); 6.0.14 -> main (6.0.15) planned, dry-run, upgraded and rolled back exactly. Exponential's own Windows CI runs the same 6.0.14 -> main upgrade and rollback through xne on every kernel push ([a green run](https://github.com/se7enxweb/exponential/actions/runs/45867228580)) |
 
 On Windows, upgrades from 6.0.13 to 6.0.14 and from 6.0.14 to 6.0.15 run in CI on Windows Server 2022 and 2025,
