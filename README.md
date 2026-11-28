@@ -251,10 +251,16 @@ What xne never does:
 
 ## Versioning
 
-Four positions, `X.Y.Z.N`: currently **0.3.0.10** (`App::VERSION`, the `VERSION` file, `xne version`, every `--json`
-result and `GET /api/v1/status`). Only the last position counts on: 0.3.0.10 -> 0.3.0.11. Tags are permanent:
+Four positions, `X.Y.Z.N`: currently **0.3.0.11** (`App::VERSION`, the `VERSION` file, `xne version`, every `--json`
+result and `GET /api/v1/status`). Only the last position counts on: 0.3.0.11 -> 0.3.0.12. Tags are permanent:
 a published version is never moved or re-cut; a fix is always the next version.
 
+- **0.3.0.11** (2026-11-27): after a file patch xne tells the kernel the code is in place, so `exp:upgrade` runs the
+  later stages on an install that is a git checkout (its commits are left as they were, and the kernel's code step
+  stayed pending: "the stage code has 1 pending step(s)", then a rollback). It passes `--code-applied=<commit>` when
+  the target's kernel knows it (Exponential main from 2026-11-27), and on an older kernel `--force-order` only when
+  `exp:upgrade:status` shows the code step as the one pending step before the run; `xne plan` reports the answer as
+  `database.code_stage` (`CodeStageTest`).
 - **0.3.0.10** (2026-11-26): `xne plan` and the upgrade preflight check the PHP extensions the target release
   requires (`ext-*` of its composer.json, its composer.lock platform and every package the lock installs, never the
   dev ones) against the PHP its tools and Composer run with, and block with trap `php-extension-missing` before
