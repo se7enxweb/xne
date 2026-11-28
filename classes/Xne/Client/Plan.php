@@ -209,6 +209,14 @@ final class Plan
             $stages = $wantLibs ? ['libraries', 'database', 'scripts'] : ['database', 'scripts'];
             $db['kernel_command'] = 'php bin/php/upgrade.php --apply --stages=' . implode(',', $stages) . ' --no-deploy --no-verify --format=json --no-caption --force-no-caption';
             $db['stages'] = $stages;
+            if ($method === 'filepatch') {
+                // the file patch puts the code in place: the release's kernel is told so (older kernels: Apply
+                // checks that the code step is the only pending one before it passes --force-order)
+                $db['code_stage'] = Kernel::supportsCodeApplied($tree) ? 'code-applied' : 'force-order-if-only-code-pending';
+                if ($db['code_stage'] === 'code-applied') {
+                    $db['kernel_command'] .= ' --code-applied=' . (string) $rel->meta['sha'];
+                }
+            }
             if ($wantLibs) {
                 $libs = ['needed' => true, 'dirs' => self::libraryDirs($root, $tree, (array) ($d['composer']['added'] ?? []))];
                 if (!empty($d['composer']['update'])) {

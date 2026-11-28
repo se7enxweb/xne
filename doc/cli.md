@@ -144,7 +144,11 @@ With `--dry-run` it prints the plan and stops (exit 0, or 3 when blocked). Other
    the git fast-forward (`git merge --ff-only`);
 6. **libraries, database, scripts**: `php bin/php/upgrade.php --apply --stages=[libraries,]database,scripts
    --no-deploy --no-verify --no-tests --format=json --no-caption --force-no-caption --to=<commit>` when the target has
-   the kernel's exp:upgrade (xne's backup replaces the kernel's caption), else the SQL update files;
+   the kernel's exp:upgrade (xne's backup replaces the kernel's caption), else the SQL update files. After a file
+   patch `--to` is left out and the kernel is told the code is in place: `--code-applied=<commit>` when the target's
+   kernel knows it (plan: `database.code_stage` `code-applied`), else `--force-order`, and only when the kernel's code
+   step `6.0.15-code-update` is the one pending step of the stages before the run (plan: `force-order-if-only-code-pending`);
+   with any other pending step the kernel's refusal stands and xne rolls back;
 7. **finish**: `ezpgenerateautoloads.php -e`, then `ezcache.php --clear-tag=<tag>` once per tag of `cache_tags`;
    with `finish=velocity` also `exp:velocity deploy`;
 8. **health**: written files equal the release, `share/filelist.md5` is the release's own and matches the files, the

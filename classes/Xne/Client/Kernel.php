@@ -287,9 +287,13 @@ final class Kernel
      * would double the time), so --no-caption --force-no-caption; the deploy and the verification are xne's finish
      * and health steps. @return array<string,mixed> the exp-upgrade/1 report
      */
-    public function upgrade(array $stages, string $toSha, array $update = []): array
+    public function upgrade(array $stages, string $toSha, array $update = [], array $extra = []): array
     {
         $args = ['--apply', '--stages=' . implode(',', $stages), '--no-deploy', '--no-verify', '--no-tests', '--format=json', '--no-caption', '--force-no-caption'];
+        foreach ($extra as $a) {
+            // the code stage's answer after a file patch (codeStageArgs()): --code-applied=<sha> or --force-order
+            $args[] = $a;
+        }
         if ($update !== []) {
             // the libraries stage's composer update of these packages, with their dependencies
             $args[] = '--update=' . implode(',', $update);
@@ -367,6 +371,100 @@ final class Kernel
         $head = (string) fread($h, 65536);
         fclose($h);
         return strpos($head, '__HALT_COMPILER') !== false;
+    }
+
+    /** The kernel stages in their fixed order (expUpgradeRegistry::STAGES). */
+    public const STAGES = ['code', 'libraries', 'database', 'scripts', 'finish'];
+
+    /** The code step of the kernel's code stage: moves the git checkout, the one step a file patch does itself. */
+    public const CODE_STEP = '6.0.15-code-update';
+
+    /**
+     * Whether the install's exp:upgrade knows --code-applied (the kernel feature of 2026-11-27): its command contract
+     * (kernel/private/classes/commands/upgradebase.php, the options every exp:upgrade command takes) names it.
+     */
+    public static function supportsCodeApplied(string $root): bool
+    {
+        $f = $root . '/kernel/private/classes/commands/upgradebase.php';
+        return is_file($f) && strpos((string) file_get_contents($f), '[code-applied:]') !== false;
+    }
+
+    /**
+     * The exp:upgrade arguments that tell the kernel the code is in place after xne's file patch, for a run of
+     * $stages. A git checkout keeps its commits under a file patch, so the kernel's code step (which moves the
+     * checkout) stays pending, and exp:upgrade refuses a later stage while an earlier one has pending steps.
+     *  - a kernel with --code-applied: --code-applied=<sha> (the code stage counts as in place, nothing else changes);
+     *  - an older kernel: --force-order, only when the code step is the one pending step of the stages before the
+     *    run's first (exp:upgrade:status says so); any other pending step keeps the kernel's refusal (no arguments).
+     * $pending: stage => list of pending or failed step ids of those earlier stages (pendingSteps()), null when
+     * unknown. @param list<string> $stages @param array<string,list<string>>|null $pending
+     * @return array{args: list<string>, note: string}
+     */
+    public static function codeStageArgs(bool $codeApplied, array $stages, string $sha, ?array $pending): array
+    {
+        if ($codeApplied) {
+            return ['args' => ['--code-applied=' . $sha], 'note' => 'code stage: in place by the file patch (--code-applied=' . substr($sha, 0, 12) . ')'];
+        }
+        $earlier = self::earlierStages($stages);
+        if ($earlier === [] || $pending === null) {
+            return ['args' => [], 'note' => ''];
+        }
+        $ids = [];
+        foreach ($earlier as $st) {
+            foreach ($pending[$st] ?? [] as $id) {
+                $ids[] = $st . ':' . $id;
+            }
+        }
+        if ($ids === ['code:' . self::CODE_STEP]) {
+            return ['args' => ['--force-order'], 'note' => 'code stage: in place by the file patch; this kernel has no --code-applied, so --force-order (the code step was the only pending step before ' . $stages[0] . ')'];
+        }
+        return ['args' => [], 'note' => ''];
+    }
+
+    /** @param list<string> $stages @return list<string> the kernel stages before the first of $stages */
+    public static function earlierStages(array $stages): array
+    {
+        $out = [];
+        foreach (self::STAGES as $st) {
+            if (in_array($st, $stages, true)) {
+                break;
+            }
+            $out[] = $st;
+        }
+        return $out;
+    }
+
+    /**
+     * The pending or failed step ids of each stage asked for, from exp:upgrade:status (null: no status command or an
+     * unreadable answer). @param list<string> $stages @return array<string,list<string>>|null
+     */
+    public function pendingSteps(array $stages): ?array
+    {
+        if ($stages === [] || !$this->has('bin/php/upgradestatus.php')) {
+            return $stages === [] ? [] : null;
+        }
+        $r = $this->run('bin/php/upgradestatus.php', ['--stages=' . implode(',', $stages), '--format=json']);
+        $j = self::json($r['out']);
+        return $j === null ? null : self::pendingStepsOf($j);
+    }
+
+    /** @param array<string,mixed> $status an exp-upgrade/1 report @return array<string,list<string>> stage => step ids */
+    public static function pendingStepsOf(array $status): array
+    {
+        $out = [];
+        foreach ((array) ($status['stages'] ?? []) as $st) {
+            $name = (string) ($st['stage'] ?? $st['name'] ?? '');
+            if ($name === '') {
+                continue;
+            }
+            $out[$name] = $out[$name] ?? [];
+            foreach ((array) ($st['steps'] ?? []) as $step) {
+                if (in_array($step['state'] ?? '', ['pending', 'failed'], true)) {
+                    $out[$name][] = (string) ($step['id'] ?? '?');
+                }
+            }
+        }
+        return $out;
     }
 
     /** exp:upgrade:status as JSON, or null when the install has no upgrade command. */

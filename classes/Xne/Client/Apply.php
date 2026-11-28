@@ -201,8 +201,19 @@ final class Apply
                         $stages = array_merge(['libraries'], $stages);
                     }
                 }
+                // a file patch put the code in place itself: tell the kernel, whose code step would otherwise stay
+                // pending on a git checkout (its commits are left as they were) and block the later stages
+                $code = ['args' => [], 'note' => ''];
+                if ($git === null) {
+                    $supported = Kernel::supportsCodeApplied($this->root);
+                    $code = Kernel::codeStageArgs($supported, $stages, $sha, $supported ? null : $k->pendingSteps(Kernel::earlierStages($stages)));
+                    if ($code['note'] !== '') {
+                        $this->say($code['note']);
+                        $res['steps'][] = $code['note'];
+                    }
+                }
                 $this->say('kernel: exp:upgrade ' . implode(',', $stages));
-                $rep = $k->upgrade($stages, $git !== null ? $sha : '', in_array('libraries', $stages, true) ? (array) ($d['libraries']['update'] ?? []) : []);
+                $rep = $k->upgrade($stages, $git !== null ? $sha : '', in_array('libraries', $stages, true) ? (array) ($d['libraries']['update'] ?? []) : [], $code['args']);
                 $ran = $stages;
                 $res['kernel_upgrade'] = $rep['summary'] ?? null;
                 $res['steps'][] = 'kernel exp:upgrade ' . implode(',', $ran) . ': ' . json_encode($rep['summary'] ?? 'done');

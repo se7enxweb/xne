@@ -20,6 +20,17 @@ without a backup. Proven by `LibrariesTest` (a fake kernel with the kernel's sta
 `xne rollback` and an automatic rollback restore files, vendor/ and database exactly; all 46 unit tests pass). Not yet
 rerun on a real Oracle install: the throwaway install from that proof no longer exists on this node.
 
+**Kernel code stage after a file patch (closed in 0.3.0.11).** doc.exponential.earth on cluster, 2026-11-27: a file
+patch of main into an install that is a git checkout (with local commits, so the git method is refused) wrote 5695
+files, then `exp:upgrade --stages=libraries,database,scripts` refused: "the stage code has 1 pending step(s)". A file
+patch leaves the checkout's commits as they were, so the kernel's code step (`6.0.15-code-update`, which moves the
+checkout) stays pending, and exp:upgrade refuses a later stage while an earlier one has pending steps; xne rolled back
+cleanly. The kernel now has `exp:upgrade --code-applied=<version or commit>` (the code stage counts as in place,
+nothing else is skipped); since 0.3.0.11 xne passes it after every file patch when the target's kernel knows it, and
+on an older kernel passes `--force-order` only when `exp:upgrade:status` shows the code step as the one pending step
+before the run. Proven by `CodeStageTest` (a fake kernel with the order rule: both kernels, another pending step
+refused and rolled back, exact rollback).
+
 **Sites over ODBC (kernel 6.0.15, `DatabaseImplementation=odbc`).** ODBC is only the site's transport: xne reads
 `[ODBCSettings] Dialect` and treats the install as that engine (`postgresql`, `mysql`), backing it up and rolling it
 back through the engine's own PDO driver against the same server (PHP running xne needs `pdo_pgsql` or `pdo_mysql`).
