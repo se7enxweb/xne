@@ -25,7 +25,7 @@ use Xne\XneException;
  */
 final class App
 {
-    public const VERSION = '0.3.0.12';
+    public const VERSION = '0.3.0.13';
 
     private const USAGE = [
         'defaults' => "xne defaults [--root=DIR] --reference=DIR [--dry-run]\n  An older install's settings brought to a fresh install's of the same kernel, the site's own kept: the\n  reference's ActiveExtensions the install has but does not run (added after its own), admin4l and the access\n  extensions on every administration siteaccess, AllowedDeletionDirs for a var/ link out of the install. A\n  verified backup first (settings files + database), then the kernel's autoloads, its database stage (tables of\n  the newly active extensions) and the cache clears; any failure rolls back (xne rollback works on it too).",

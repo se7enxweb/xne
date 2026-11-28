@@ -251,10 +251,14 @@ What xne never does:
 
 ## Versioning
 
-Four positions, `X.Y.Z.N`: currently **0.3.0.12** (`App::VERSION`, the `VERSION` file, `xne version`, every `--json`
-result and `GET /api/v1/status`). Only the last position counts on: 0.3.0.12 -> 0.3.0.13. Tags are permanent:
+Four positions, `X.Y.Z.N`: currently **0.3.0.13** (`App::VERSION`, the `VERSION` file, `xne version`, every `--json`
+result and `GET /api/v1/status`). Only the last position counts on: 0.3.0.13 -> 0.3.0.14. Tags are permanent:
 a published version is never moved or re-cut; a fix is always the next version.
 
+- **0.3.0.13** (2026-11-28): the web server's PHP is no longer held to the PHP constraints of the installed
+  `composer.lock`. 0.3.0.12 applied them to every candidate, so a Plesk site on PHP 8.5 whose lock still had an
+  older `se7enxweb/exponential-php-floor` (`php >=8.1 <8.4`, replaced by the upgrade) got its tools run with PHP 8.3.
+  The constraints now apply only to the fallback when the web PHP is unknown (`PlanTest`).
 - **0.3.0.12** (2026-11-27): the install's tools and Composer run with the PHP the site runs on. On Plesk the web PHP
   comes from the vhost whose DocumentRoot is the install root (compared as a directory) and its PHP-FPM pool, and
   from Velocity's site files; before, a PHP-FPM site had no web PHP and xne took the newest PHP installed, a

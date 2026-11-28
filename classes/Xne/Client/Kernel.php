@@ -451,7 +451,9 @@ final class Kernel
      * @param string|null $setting the php setting (--php), '' or null when none
      * @param list<string> $order the binaries in the order of preference after the web PHP (this PHP, PATH, installed)
      * @param array<string,string> $constraints package => require.php of the install's composer.json and composer.lock
-     *        (lockPhpConstraints()): a PHP one of them rules out is skipped; never applied to the php setting
+     *        (lockPhpConstraints()): a PHP one of them rules out is skipped in the fallback; never applied to the php
+     *        setting or to the web server's PHP (the site already runs on it; an installed lock can carry a constraint
+     *        the upgrade replaces, such as an older exponential-php-floor)
      * @param string $webSource where the web PHP was read (webPhpInfo()), for the reason
      * @return array{binary: ?string, version: ?int, needs: int, web: ?string, reason: string, skipped: array<string,string>}
      */
@@ -487,7 +489,7 @@ final class Kernel
         }
         if ($web !== null) {
             foreach ($order as $b) {
-                if (preg_match('/^(\d+)\.(\d+)$/', $web, $m) && isset($versions[$b]) && intdiv((int) $versions[$b], 100) === (int) $m[1] * 100 + (int) $m[2] && $ok($b)) {
+                if (preg_match('/^(\d+)\.(\d+)$/', $web, $m) && isset($versions[$b]) && intdiv((int) $versions[$b], 100) === (int) $m[1] * 100 + (int) $m[2] && $ok($b, false)) {
                     return ['binary' => $b, 'version' => $versions[$b], 'reason' => "the web server's PHP $web" . ($webSource !== '' ? " ($webSource)" : ''), 'skipped' => $skipped] + $res;
                 }
             }

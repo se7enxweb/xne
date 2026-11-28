@@ -229,9 +229,9 @@ return [
         $c = $K::choosePhp($v, '', null, ['/usr/bin/php86', $p85], 80400, ['se7enxweb/tron' => '>=7.4 <8.6']);
         t_same($p85, $c['binary']);
         t_true(strpos($c['skipped']['/usr/bin/php86'], 'se7enxweb/tron requires php >=7.4 <8.6') !== false, $c['skipped']['/usr/bin/php86']);
-        // the web PHP excluded by composer.lock: the next in order, and the reason says the web PHP would not do
-        $c = $K::choosePhp($v, '', '8.6', ['/usr/bin/php86', $p85], 80400, ['se7enxweb/tron' => '>=7.4 <8.6'], 'Plesk');
-        t_same($p85, $c['binary']);
+        // the web PHP is what the site runs on: an installed lock's stale constraint does not overrule it
+        $c = $K::choosePhp($v, '', '8.5', ['/usr/bin/php', '/opt/plesk/php/8.3/bin/php', $p85], 80200, ['se7enxweb/exponential-php-floor' => '>=8.1 <8.4'], 'Plesk');
+        t_same($p85, $c['binary'], $c['reason']);
         // the web PHP found: named with where it was read
         $c = $K::choosePhp($v, '', '8.5', ['/usr/bin/php', $p85], 80400, [], 'Plesk: doc.example (PHP-FPM pool x)');
         t_same("the web server's PHP 8.5 (Plesk: doc.example (PHP-FPM pool x))", $c['reason']);

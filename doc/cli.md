@@ -150,10 +150,13 @@ one PHP, chosen before anything changes (since 0.3.0.12):
    a distribution's preview build such as `/usr/bin/php86` is not what the sites run.
 
 Every candidate except `--php` must meet the minimum (the install's and the target's
-`vendor/composer/platform_check.php`, at least 8.1) and every PHP constraint of the install's and the target's
-`composer.json` and `composer.lock` (`require.php` of each installed package, dev packages left out): a package that
-requires `php >=7.4 <8.6` rules PHP 8.6 out before Composer would refuse it half way through the upgrade. A
-constraint in a form xne does not read decides nothing. `xne plan` prints the choice, its reason and what was
+`vendor/composer/platform_check.php`, at least 8.1). In the fallback (step 3) a candidate must also meet every PHP
+constraint of the install's and the target's `composer.json` and `composer.lock` (`require.php` of each installed
+package, dev packages left out): a package that requires `php >=7.4 <8.6` rules PHP 8.6 out before Composer would
+refuse it half way through the upgrade. The web server's PHP is not held to them (since 0.3.0.13): the site already
+runs on it, and an installed lock can carry a constraint the upgrade replaces (an older
+`se7enxweb/exponential-php-floor` with `php <8.4` on a site that runs 8.5). A constraint in a form xne does not read
+decides nothing. `xne plan` prints the choice, its reason and what was
 skipped; `--json` has it as `result.php` (`binary`, `version`, `needs`, `web`, `web_from`, `reason`, `skipped`).
 
 ### upgrade
