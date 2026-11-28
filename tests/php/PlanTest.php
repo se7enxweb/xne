@@ -135,7 +135,10 @@ return [
         try {
             $K::$webPaths = ['plesk_system' => "$s/system", 'plesk_php' => "$s/plesk/php", 'velocity' => ["$s/vc/sites-enabled"]];
             \Xne\Fs::mkdir("$s/acct/public_html/doc.example/doc");
-            symlink('public_html', "$s/acct/doc");
+            // Plesk and Velocity run on Linux; on Windows the doc/ link is a plain folder path (no symlink rights needed)
+            $win = DIRECTORY_SEPARATOR === '\\';
+            $win ? \Xne\Fs::mkdir("$s/acct/doc") : symlink('public_html', "$s/acct/doc");
+            $via = $win ? "$s/acct/public_html" : "$s/acct/doc";
             $root = "$s/acct/public_html/doc.example/doc";
             $vhost = static function (string $domain, string $file, string $text) use ($s): void {
                 \Xne\Fs::atomicWrite("$s/system/$domain/conf/$file", $text);
@@ -148,7 +151,7 @@ return [
             $pool('8.3', 'other.example');
             t_same(null, $K::webPhp($root));
             // the vhost names it through the doc/ link: same directory, so it is found; the pool says 8.5
-            $vhost('doc.example', 'httpd.conf', "<VirtualHost *:443>\n\t\tServerName \"doc.example\"\n\t\tDocumentRoot \"$s/acct/doc/doc.example/doc\"\n</VirtualHost>\n");
+            $vhost('doc.example', 'httpd.conf', "<VirtualHost *:443>\n\t\tServerName \"doc.example\"\n\t\tDocumentRoot \"$via/doc.example/doc\"\n</VirtualHost>\n");
             $pool('8.5', 'doc.example');
             t_same(null, $K::webPhp($root), 'cached for the run: the same paths give the same answer');
             $K::$webPaths['velocity'][] = "$s/none"; // other paths, another cache entry
@@ -174,7 +177,7 @@ return [
             // Velocity: a site file whose host root is the install, the PHP in its name (no Plesk vhost)
             $r2 = "$s/acct/public_html/velo";
             \Xne\Fs::mkdir($r2);
-            \Xne\Fs::atomicWrite("$s/vc/sites-enabled/vcc-acct-php85-exp0123.conf", json_encode(['Q' => ['webserver' => ['hosts' => ['velo.example' => ['root' => "$s/acct/doc/velo", 'rewrite' => []]]]]], JSON_PRETTY_PRINT));
+            \Xne\Fs::atomicWrite("$s/vc/sites-enabled/vcc-acct-php85-exp0123.conf", json_encode(['Q' => ['webserver' => ['hosts' => ['velo.example' => ['root' => "$via/velo", 'rewrite' => []]]]]], JSON_PRETTY_PRINT));
             \Xne\Fs::atomicWrite("$s/vc/sites-enabled/plain.conf", json_encode(['Q' => ['webserver' => ['hosts' => ['x' => ['root' => $r2]]]]]));
             $i = $K::webPhpInfo($r2);
             t_same('8.5', $i['version']);

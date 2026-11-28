@@ -128,11 +128,26 @@ final class Kernel
         return $res;
     }
 
-    /** "dev:inode" of a directory (symlinks followed), or null when it is not one. */
-    private static function dirId(string $path): ?string
+    /**
+     * The identity of a directory, or null when it is not one: its real path (links resolved) and, where the system
+     * has inode numbers, "dev:inode" too (a bind mount reaches the same folder by another real path).
+     * @return array{0: string, 1: ?string}|null
+     */
+    private static function dirId(string $path): ?array
     {
-        $s = @stat($path);
-        return $s === false || !is_dir($path) ? null : $s['dev'] . ':' . $s['ino'];
+        $real = realpath($path);
+        if ($real === false || !is_dir($real)) {
+            return null;
+        }
+        $s = @stat($real);
+        return [$real, $s !== false && (int) $s['ino'] !== 0 ? $s['dev'] . ':' . $s['ino'] : null];
+    }
+
+    /** True when $path is the directory $id (dirId() of the install root). @param array{0: string, 1: ?string} $id */
+    private static function sameDir(string $path, array $id): bool
+    {
+        $o = self::dirId($path);
+        return $o !== null && ($o[0] === $id[0] || ($o[1] !== null && $o[1] === $id[1]));
     }
 
     /**
@@ -162,7 +177,7 @@ final class Kernel
             }
             $match = false;
             foreach ($roots as $d) {
-                if (rtrim($d, '/') === rtrim($root, '/') || self::dirId($d) === $id) {
+                if (rtrim($d, '/') === rtrim($root, '/') || self::sameDir($d, $id)) {
                     $match = true;
                     break;
                 }
@@ -210,8 +225,8 @@ final class Kernel
                 preg_match_all('/"([^"]+)"\s*:\s*\{\s*"root"\s*:\s*"([^"]+)"/', (string) @file_get_contents($f), $hosts, PREG_SET_ORDER);
                 foreach ($hosts as $h) {
                     $host = $h[1];
-                    $r = str_replace('\\/', '/', $h[2]);
-                    if (rtrim($r, '/') === rtrim($root, '/') || self::dirId($r) === $id) {
+                    $r = (string) json_decode('"' . $h[2] . '"'); // undo the JSON escapes (escaped slashes, the doubled backslashes of a Windows path)
+                    if (rtrim($r, '/') === rtrim($root, '/') || self::sameDir($r, $id)) {
                         $out[$m[1] . '.' . $m[2]][] = "$host (Velocity " . basename($f) . ')';
                     }
                 }
