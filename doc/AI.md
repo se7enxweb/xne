@@ -83,6 +83,7 @@ Important fields:
 | plan | `result.database.mode` | `kernel` (the kernel's `exp:upgrade` stages) or `sql` (the update files listed in `sql_files`) |
 | plan | `result.traps[]` | `{id, level: info|warn|block, message, fix}` |
 | plan | `result.blocked[]` | reasons the upgrade would be refused; empty when it may run |
+| plan | `result.php.{binary,version,reason,web,web_from,skipped}` | the PHP the kernel's tools and Composer run with and why (`--php`, the web server's PHP from `.htaccess`, the Plesk vhost's PHP-FPM pool, Velocity or `.php-version`, else panel PHPs first); `skipped` names each PHP left out (below the platform check, or ruled out by a `composer.lock` constraint) |
 | plan | `result.php_extensions.{required,missing,php,ini}` | the PHP extensions the target requires (and by whom), those the chosen PHP lacks with the `php.ini` line for Linux and Windows; a missing one blocks as trap `php-extension-missing` |
 | upgrade | `result.ok`, `result.from`, `result.to` | the outcome |
 | upgrade | `result.backup.{id,dir}` | the backup to roll back to |

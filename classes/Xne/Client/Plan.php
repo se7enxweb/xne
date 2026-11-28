@@ -274,7 +274,7 @@ final class Plan
         }
         $steps[] = $method === 'git' ? 'git fast-forward to ' . substr((string) $rel->meta['sha'], 0, 12) : 'file patch (' . ($diff === null ? 0 : count($diff['add']) + count($diff['update']) + count($diff['local_edits'])) . ' written, ' . ($diff === null ? 0 : count($diff['remove'])) . ' retired)';
         if ($dbMode === 'kernel') {
-            $steps[] = 'kernel exp:upgrade: ' . implode(', ', $db['stages']);
+            $steps[] = 'kernel exp:upgrade' . ($php['binary'] !== null ? ' with ' . $php['binary'] : '') . ': ' . implode(', ', $db['stages']);
         } elseif ($dbMode === 'sql') {
             $steps[] = count($db['sql_files']) . ' SQL update file(s)';
         }

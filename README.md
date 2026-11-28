@@ -251,10 +251,17 @@ What xne never does:
 
 ## Versioning
 
-Four positions, `X.Y.Z.N`: currently **0.3.0.11** (`App::VERSION`, the `VERSION` file, `xne version`, every `--json`
-result and `GET /api/v1/status`). Only the last position counts on: 0.3.0.11 -> 0.3.0.12. Tags are permanent:
+Four positions, `X.Y.Z.N`: currently **0.3.0.12** (`App::VERSION`, the `VERSION` file, `xne version`, every `--json`
+result and `GET /api/v1/status`). Only the last position counts on: 0.3.0.12 -> 0.3.0.13. Tags are permanent:
 a published version is never moved or re-cut; a fix is always the next version.
 
+- **0.3.0.12** (2026-11-27): the install's tools and Composer run with the PHP the site runs on. On Plesk the web PHP
+  comes from the vhost whose DocumentRoot is the install root (compared as a directory) and its PHP-FPM pool, and
+  from Velocity's site files; before, a PHP-FPM site had no web PHP and xne took the newest PHP installed, a
+  `/usr/bin/php86` preview build, on which Composer refused a package (`php <8.6`) and the upgrade rolled back. The
+  fallback ranks panel PHPs first and leaves out a newer distribution build, every candidate must satisfy the PHP
+  constraints of `composer.lock`, and `xne plan` prints the PHP with its reason (`result.php` in `--json`;
+  `PlanTest`).
 - **0.3.0.11** (2026-11-27): after a file patch xne tells the kernel the code is in place, so `exp:upgrade` runs the
   later stages on an install that is a git checkout (its commits are left as they were, and the kernel's code step
   stayed pending: "the stage code has 1 pending step(s)", then a rollback). It passes `--code-applied=<commit>` when

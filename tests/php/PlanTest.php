@@ -128,4 +128,115 @@ return [
         \Xne\Fs::atomicWrite($s . '/.htaccess', "# AddHandler application/x-httpd-php56 .php\nAddHandler application/x-httpd-ea-php84 .php .php8\n");
         t_same('8.4', $K::webPhp($s), 'the AddHandler line wins, a commented one does not count');
     },
+    'web PHP on Plesk: the vhost whose DocumentRoot is the install (any path to it), its PHP-FPM pool; then Velocity; cached per run' => static function (): void {
+        $K = \Xne\Client\Kernel::class;
+        $s = t_scratch('web-php-plesk');
+        $saved = $K::$webPaths;
+        try {
+            $K::$webPaths = ['plesk_system' => "$s/system", 'plesk_php' => "$s/plesk/php", 'velocity' => ["$s/vc/sites-enabled"]];
+            \Xne\Fs::mkdir("$s/acct/public_html/doc.example/doc");
+            symlink('public_html', "$s/acct/doc");
+            $root = "$s/acct/public_html/doc.example/doc";
+            $vhost = static function (string $domain, string $file, string $text) use ($s): void {
+                \Xne\Fs::atomicWrite("$s/system/$domain/conf/$file", $text);
+            };
+            $pool = static function (string $ver, string $domain) use ($s): void {
+                \Xne\Fs::atomicWrite("$s/plesk/php/$ver/etc/php-fpm.d/$domain.conf", "[$domain]\n");
+            };
+            // nothing serves it yet; another vhost with its own root and pool does not count
+            $vhost('other.example', 'httpd.conf', "<VirtualHost *:443>\n\t\tDocumentRoot \"$s/acct/public_html/other\"\n</VirtualHost>\n");
+            $pool('8.3', 'other.example');
+            t_same(null, $K::webPhp($root));
+            // the vhost names it through the doc/ link: same directory, so it is found; the pool says 8.5
+            $vhost('doc.example', 'httpd.conf', "<VirtualHost *:443>\n\t\tServerName \"doc.example\"\n\t\tDocumentRoot \"$s/acct/doc/doc.example/doc\"\n</VirtualHost>\n");
+            $pool('8.5', 'doc.example');
+            t_same(null, $K::webPhp($root), 'cached for the run: the same paths give the same answer');
+            $K::$webPaths['velocity'][] = "$s/none"; // other paths, another cache entry
+            $i = $K::webPhpInfo($root);
+            t_same('8.5', $i['version']);
+            t_same('Plesk', $i['source']);
+            t_true(strpos($i['versions']['8.5'][0], 'doc.example (PHP-FPM pool ') === 0, $i['versions']['8.5'][0]);
+            // an alias vhost (nginx only) of the same root on 8.4: the lowest is the site's, both are listed
+            $vhost('alias.example', 'nginx.conf', "server {\n\troot \"$root/\";\n\tlocation @fallback { root /var/www/vhosts/default/htdocs; }\n}\n");
+            $pool('8.4', 'alias.example');
+            $K::$webPaths['velocity'][] = "$s/none2";
+            $i = $K::webPhpInfo($root);
+            t_same('8.4', $i['version']);
+            t_same(['8.4', '8.5'], array_keys($i['versions']));
+            // a vhost without a pool: the Plesk PHP its configuration names (FastCGI)
+            $vhost('cgi.example', 'httpd.conf', "\t\tDocumentRoot \"$root\"\n\t\tFcgidWrapper $s/plesk/php/8.2/bin/php-cgi .php\n");
+            $K::$webPaths['velocity'][] = "$s/none3";
+            t_same(['8.2', '8.4', '8.5'], array_keys($K::webPhpInfo($root)['versions']));
+            // an AddHandler in .htaccess still decides first
+            \Xne\Fs::atomicWrite("$root/.htaccess", "AddHandler application/x-httpd-lsphp83 .php\n");
+            $K::$webPaths['velocity'][] = "$s/none4";
+            t_same('8.3', $K::webPhp($root));
+            // Velocity: a site file whose host root is the install, the PHP in its name (no Plesk vhost)
+            $r2 = "$s/acct/public_html/velo";
+            \Xne\Fs::mkdir($r2);
+            \Xne\Fs::atomicWrite("$s/vc/sites-enabled/vcc-acct-php85-exp0123.conf", json_encode(['Q' => ['webserver' => ['hosts' => ['velo.example' => ['root' => "$s/acct/doc/velo", 'rewrite' => []]]]]], JSON_PRETTY_PRINT));
+            \Xne\Fs::atomicWrite("$s/vc/sites-enabled/plain.conf", json_encode(['Q' => ['webserver' => ['hosts' => ['x' => ['root' => $r2]]]]]));
+            $i = $K::webPhpInfo($r2);
+            t_same('8.5', $i['version']);
+            t_same('Velocity', $i['source']);
+            t_same(['velo.example (Velocity vcc-acct-php85-exp0123.conf)'], $i['versions']['8.5']);
+        } finally {
+            $K::$webPaths = $saved;
+        }
+    },
+    'Composer PHP constraints: what composer.lock allows rules a PHP in or out' => static function (): void {
+        $K = \Xne\Client\Kernel::class;
+        $cases = [
+            ['>=7.4 <8.6', '8.5.13', true], ['>=7.4 <8.6', '8.6.0', false], ['>= 7.4, < 8.6', '8.6.0', false],
+            ['^7.4 || ^8.0', '8.6.0', true], ['^8.0 || ^8.1 || ^8.2 || ^8.3 || ^8.4', '9.0.0', false], ['^7.2|^8.0', '7.1.3', false],
+            ['~8.1', '8.9.0', true], ['~8.1', '9.0.0', false], ['~8.1.2', '8.2.0', false], ['~8.1.2', '8.1.9', true],
+            ['8.*', '8.6.0', true], ['8.1.*', '8.2.0', false], ['*', '8.6.0', true], ['', '8.6.0', true],
+            ['7.4 - 8.5', '8.5.13', true], ['7.4 - 8.5', '8.6.0', false], ['7.4 - 8.5.1', '8.5.2', false],
+            ['>=8.1,<8.6 || >=9', '8.6.0', false], ['!=8.6.0', '8.6.0', false], ['8.1', '8.1.0', true], ['8.1', '8.1.12', false],
+            ['>=8.0.0-dev', '8.0.0', true], ['dev-master', '8.6.0', null],
+        ];
+        foreach ($cases as [$c, $v, $want]) {
+            t_same($want, $K::constraintAllows($c, $v), "$c vs $v");
+        }
+        t_same('se7enxweb/tron requires php >=7.4 <8.6', $K::excludedBy(['a/b' => '>=8.0', 'se7enxweb/tron' => '>=7.4 <8.6'], 80600));
+        t_same(null, $K::excludedBy(['a/b' => '>=8.0', 'x/y' => 'weird'], 80513));
+        $s = t_scratch('lock-php');
+        \Xne\Fs::atomicWrite("$s/composer.json", json_encode(['require' => ['php' => '>=8.1']]));
+        \Xne\Fs::atomicWrite("$s/composer.lock", json_encode(['packages' => [['name' => 'se7enxweb/tron', 'require' => ['php' => '>=7.4 <8.6']], ['name' => 'a/noreq']],
+            'packages-dev' => [['name' => 'dev/only', 'require' => ['php' => '<8.0']]]]));
+        t_same(['composer.json' => '>=8.1', 'se7enxweb/tron' => '>=7.4 <8.6'], $K::lockPhpConstraints($s));
+        t_same([], $K::lockPhpConstraints(null));
+    },
+    'the PHP fallback when the web PHP is unknown: panel PHPs first, no newer distribution build, composer.lock respected' => static function (): void {
+        $K = \Xne\Client\Kernel::class;
+        $p85 = '/opt/plesk/php/8' . '.5/bin/php'; // spelled in two parts: the public export rewrites the whole path
+        // a Plesk node (2026-11-27): CLI 8.3, vendor needs 8.4, Plesk 8.4 and 8.5, /usr/bin/php86 a dev build
+        $v = ['/usr/bin/php' => 80336, '/usr/bin/php86' => 80600, '/opt/plesk/php/8.4/bin/php' => 80420, $p85 => 80513, '/opt/plesk/php/7.4/bin/php' => 70433];
+        $ranked = $K::rankInstalled(['/opt/plesk/php/7.4/bin/php', '/opt/plesk/php/8.4/bin/php', $p85, '/usr/bin/php86'], $v);
+        t_same([$p85, '/opt/plesk/php/8.4/bin/php', '/opt/plesk/php/7.4/bin/php'], $ranked, 'php86 is newer than every Plesk PHP: left out');
+        $c = $K::choosePhp($v, '', null, array_merge(['/usr/bin/php'], $ranked), 80400);
+        t_same($p85, $c['binary'], $c['reason']);
+        t_true(strpos($c['reason'], 'unknown') !== false, $c['reason']);
+        t_same(['/usr/bin/php'], array_keys($c['skipped']));
+        // without a panel PHP the distribution builds are all there is, newest first
+        t_same(['/usr/bin/php86', '/usr/bin/php84'], $K::rankInstalled(['/usr/bin/php84', '/usr/bin/php86'], ['/usr/bin/php84' => 80410, '/usr/bin/php86' => 80600]));
+        // a distribution PHP no newer than the panel's stays, after the panel PHPs
+        t_same([$p85, '/usr/bin/php85'], $K::rankInstalled(['/usr/bin/php85', $p85], ['/usr/bin/php85' => 80510, $p85 => 80513]));
+        // composer.lock rules the newest out even when it is first in order
+        $c = $K::choosePhp($v, '', null, ['/usr/bin/php86', $p85], 80400, ['se7enxweb/tron' => '>=7.4 <8.6']);
+        t_same($p85, $c['binary']);
+        t_true(strpos($c['skipped']['/usr/bin/php86'], 'se7enxweb/tron requires php >=7.4 <8.6') !== false, $c['skipped']['/usr/bin/php86']);
+        // the web PHP excluded by composer.lock: the next in order, and the reason says the web PHP would not do
+        $c = $K::choosePhp($v, '', '8.6', ['/usr/bin/php86', $p85], 80400, ['se7enxweb/tron' => '>=7.4 <8.6'], 'Plesk');
+        t_same($p85, $c['binary']);
+        // the web PHP found: named with where it was read
+        $c = $K::choosePhp($v, '', '8.5', ['/usr/bin/php', $p85], 80400, [], 'Plesk: doc.example (PHP-FPM pool x)');
+        t_same("the web server's PHP 8.5 (Plesk: doc.example (PHP-FPM pool x))", $c['reason']);
+        // none left: refused, with composer.lock named
+        $c = $K::choosePhp(['/usr/bin/php86' => 80600], '', null, ['/usr/bin/php86'], 80400, ['se7enxweb/tron' => '<8.6']);
+        t_same(null, $c['binary']);
+        t_true(strpos($c['reason'], 'composer.lock') !== false, $c['reason']);
+        // --php is the operator's word: never second-guessed by composer.lock
+        t_same('/usr/bin/php86', $K::choosePhp($v, '/usr/bin/php86', null, [], 80400, ['se7enxweb/tron' => '<8.6'])['binary']);
+    },
 ];

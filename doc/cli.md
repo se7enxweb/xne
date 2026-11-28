@@ -29,7 +29,7 @@ Setting shorthands, each the same as `--set <key>=<value>` (dashes become unders
 | `--channel=C` | `channel` | `stable`, `beta`, `main` or `security` (see `plan`) |
 | `--method=M` | `method` | `auto`, `filepatch` or `git` |
 | `--maintenance=M` | `maintenance` | `keep` (visitors keep being served) or `page` (the kernel's maintenance page during the upgrade) |
-| `--php=PATH` | `php` | the PHP binary for xne itself and the install's tools; xne runs itself again under it when it differs. Without it the tools run with the first PHP that meets the install's `vendor/composer/platform_check.php` (and 8.1): the web server's PHP (`.htaccess` AddHandler, else `.php-version`), this PHP, `php` on PATH, then the newest installed (Plesk, LiteSpeed, cPanel, CloudLinux, `/usr/bin/phpX.Y`); the plan shows it as `php` and is blocked when there is none (since 0.3.0.2) |
+| `--php=PATH` | `php` | the PHP binary for xne itself and the install's tools; xne runs itself again under it when it differs. Without it the tools run with the first PHP that meets the install's `vendor/composer/platform_check.php` (and 8.1) and the PHP constraints of its `composer.lock`: the web server's PHP, this PHP, `php` on PATH, then the installed ones, panel PHPs first (see [Which PHP runs the install's tools](#which-php-runs-the-installs-tools)); the plan prints it as `php:` with the reason and is blocked when there is none (since 0.3.0.2) |
 | `--composer=PATH` | `composer` | the Composer phar the kernel's libraries stage runs, under the install's PHP. Without it xne passes the first real phar it finds (`composer.phar` on the PATH, in `/usr/local/bin` or `/usr/bin`, the install's own); a `composer` wrapper script is never taken, because its phar starts with the node's CLI PHP (since 0.3.0.5) |
 | `--state-dir=DIR` | `state_dir` | backups, locks and keys (default `/var/lib/xne` as root, `~/.xne/lib` otherwise, `%ProgramData%\xne\lib` on Windows) |
 | `--cache-dir=DIR` | `cache_dir` | the release cache (default `/var/cache/xne`, `~/.xne/cache`, `%ProgramData%\xne\cache`) |
@@ -122,8 +122,39 @@ The plan lists: the sources in rank order and which answered; the target (ref, k
 method and the base of the file diff (`release v6.0.14`: the tree of the install's own release, else
 `share/filelist.md5`, else none); the file counts; the local edits; the database mode (`kernel`: the stages
 `exp:upgrade` will run; `sql`: the SQL update files, in order); whether Composer runs; the traps; warnings; the ordered
-steps; and `blocked` (why it would be refused). A plan downloads the target release (and the install's own release,
+steps; the PHP the kernel's tools and Composer will run with (`php: <binary> (PHP x.y.z): <why>`, the vhosts the web PHP
+was read from, and every PHP left out with the reason); and `blocked` (why it would be refused). A plan downloads the target release (and the install's own release,
 as the base) into the release cache once; it changes nothing in the install. Exit 3 when the plan is blocked.
+
+#### Which PHP runs the install's tools
+
+The kernel's tools (`bin/php/upgrade.php`, Composer in the libraries stage, the cache and autoload scripts) run with
+one PHP, chosen before anything changes (since 0.3.0.12):
+
+1. `--php` (or the `php` setting): always that one; it is refused when it is below the minimum, never replaced.
+2. The PHP the web server runs the site with, read in this order, the first that answers:
+   - an `AddHandler application/x-httpd-*phpNN` line in the root's `.htaccess` (LiteSpeed, cPanel);
+   - Plesk: every vhost in `/var/www/vhosts/system/<domain>/conf/` whose `DocumentRoot` (`httpd.conf`, else `root` in
+     `nginx.conf`) is the install root, compared as a directory (a `doc/` link to `public_html` is the same folder),
+     and the PHP of its PHP-FPM pool `/opt/plesk/php/<version>/etc/php-fpm.d/<domain>.conf` (else the Plesk PHP its
+     configuration names);
+   - Velocity: an enabled site file (`/etc/vc/sites-enabled`, `/etc/qbix/sites-enabled`) whose host root is the install
+     and whose name carries the PHP (`vcc-<user>-php85-<hash>.conf`);
+   - `.php-version` in the root.
+
+   When several vhosts serve the root with different PHPs, the lowest that meets the minimum is taken (the code has
+   to run on all of them). The scans are one glob and a string match per vhost, once per run.
+3. When the web PHP is unknown, or none of its binaries will do: this PHP, `php` on PATH, then the installed PHPs
+   with the panel's own first (Plesk, LiteSpeed, cPanel, CloudLinux), newest first, then the others
+   (`/usr/bin/phpNN`, Windows). On a node with a panel PHP, another PHP newer than the newest panel one is left out:
+   a distribution's preview build such as `/usr/bin/php86` is not what the sites run.
+
+Every candidate except `--php` must meet the minimum (the install's and the target's
+`vendor/composer/platform_check.php`, at least 8.1) and every PHP constraint of the install's and the target's
+`composer.json` and `composer.lock` (`require.php` of each installed package, dev packages left out): a package that
+requires `php >=7.4 <8.6` rules PHP 8.6 out before Composer would refuse it half way through the upgrade. A
+constraint in a form xne does not read decides nothing. `xne plan` prints the choice, its reason and what was
+skipped; `--json` has it as `result.php` (`binary`, `version`, `needs`, `web`, `web_from`, `reason`, `skipped`).
 
 ### upgrade
 

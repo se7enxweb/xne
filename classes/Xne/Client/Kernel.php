@@ -38,8 +38,9 @@ final class Kernel
 
     /**
      * The PHP that runs the install's tools (selectPhp()): the php setting, else the PHP the web server runs the site
-     * with, else this PHP, else php on PATH, else the newest PHP installed, the first that the install's
-     * vendor/composer/platform_check.php accepts. Refused when there is none: the kernel's tools would stop in
+     * with (.htaccess, the Plesk vhost's PHP-FPM pool, Velocity, .php-version), else this PHP, else php on PATH, else
+     * the installed ones, panel PHPs newest first; the first that the install's vendor/composer/platform_check.php
+     * and the PHP constraints of its composer.lock accept. Refused when there is none: the kernel's tools would stop in
      * Composer's platform check, after the files had changed (a hosted install, 2026-11-26: CLI PHP 8.0, vendor >= 8.4).
      */
     public function php(): string
@@ -66,18 +67,336 @@ final class Kernel
         return null;
     }
 
-    /** The PHP version ("8.4") the web server runs the site with: an AddHandler line in .htaccess, else .php-version. */
+    /**
+     * Where the panels keep what the web server runs a site with. The tests point these at fixture trees.
+     * plesk_system: Plesk's per-vhost configuration (<domain>/conf/httpd.conf, nginx.conf); plesk_php: Plesk's PHP
+     * builds, each with its PHP-FPM pools (<ver>/etc/php-fpm.d/<domain>.conf); velocity: Velocity's enabled site
+     * files (vcc names them vcc-<user>-php85-<hash>.conf).
+     * @var array{plesk_system: string, plesk_php: string, velocity: list<string>}
+     */
+    public static $webPaths = ['plesk_system' => '/var/www/vhosts/system', 'plesk_php' => '/opt/plesk/php',
+        'velocity' => ['/etc/vc/sites-enabled', '/etc/qbix/sites-enabled']];
+
+    /** @var array<string, array<string, array<string, list<string>>>> the Plesk and Velocity scans per root, for one run */
+    private static $webCache = [];
+
+    /** The PHP version ("8.4") the web server runs the site with (webPhpInfo()), or null when unknown. */
     public static function webPhp(string $root): ?string
     {
+        return self::webPhpInfo($root)['version'];
+    }
+
+    /**
+     * The PHP versions the web server runs the site with, and where each was read, first found wins:
+     * 1. an AddHandler line in .htaccess (LiteSpeed, cPanel: it decides the PHP on those servers);
+     * 2. Plesk: every vhost whose DocumentRoot (httpd.conf, else nginx.conf) is the install root (same directory,
+     *    whatever the path: doc/ is often a link to public_html), and the PHP of its PHP-FPM pool
+     *    (/opt/plesk/php/<ver>/etc/php-fpm.d/<domain>.conf), else the Plesk PHP its configuration names;
+     * 3. Velocity: an enabled site file whose host root is the install root and whose name carries the PHP (vcc);
+     * 4. .php-version.
+     * One glob and a string match per vhost; the scans are cached per root for the run.
+     * version is the lowest found (the PHP every vhost of the site can run); versions lists them all with the vhosts.
+     * @return array{version: ?string, versions: array<string, list<string>>, source: string}
+     */
+    public static function webPhpInfo(string $root): array
+    {
+        $found = static function (array $versions, string $source): array {
+            uksort($versions, 'version_compare');
+            return ['version' => $versions === [] ? null : (string) array_key_first($versions), 'versions' => $versions, 'source' => $source];
+        };
+        $res = $found([], '');
         $ht = $root . '/.htaccess';
         if (is_file($ht) && preg_match('/^\s*AddHandler\s+application\/x-httpd-(?:ea-php|lsphp|alt-php|php)(\d)(\d+)/mi', (string) file_get_contents($ht), $m)) {
-            return $m[1] . '.' . $m[2];
+            $res = $found([$m[1] . '.' . $m[2] => ['.htaccess']], 'an AddHandler line in .htaccess');
+        } else {
+            // the panel scans are the cost: once per root (and paths) for the run
+            $key = $root . "\0" . json_encode(self::$webPaths);
+            if (!isset(self::$webCache[$key])) {
+                self::$webCache[$key] = ['Plesk' => self::pleskPhps($root), 'Velocity' => self::velocityPhps($root)];
+            }
+            foreach (self::$webCache[$key] as $src => $list) {
+                if ($list !== []) {
+                    return $found($list, $src);
+                }
+            }
+
+            $pv = $root . '/.php-version';
+            if (is_file($pv) && preg_match('/^\s*(\d+)\.(\d+)/', (string) file_get_contents($pv), $m)) {
+                $res = $found([$m[1] . '.' . $m[2] => ['.php-version']], '.php-version');
+            }
         }
-        $pv = $root . '/.php-version';
-        if (is_file($pv) && preg_match('/^\s*(\d+)\.(\d+)/', (string) file_get_contents($pv), $m)) {
-            return $m[1] . '.' . $m[2];
+        return $res;
+    }
+
+    /** "dev:inode" of a directory (symlinks followed), or null when it is not one. */
+    private static function dirId(string $path): ?string
+    {
+        $s = @stat($path);
+        return $s === false || !is_dir($path) ? null : $s['dev'] . ':' . $s['ino'];
+    }
+
+    /**
+     * Plesk vhosts that serve $root, by PHP version: ["8.5" => ["doc.example.com (PHP-FPM pool)"]].
+     * @return array<string, list<string>>
+     */
+    public static function pleskPhps(string $root): array
+    {
+        $system = self::$webPaths['plesk_system'];
+        $phpDir = self::$webPaths['plesk_php'];
+        $id = self::dirId($root);
+        if ($id === null || !is_dir($system)) {
+            return [];
+        }
+        $out = [];
+        foreach (glob($system . '/*/conf', GLOB_ONLYDIR) ?: [] as $conf) {
+            $domain = basename(dirname($conf));
+            $text = '';
+            $roots = [];
+            foreach (['httpd.conf' => '/^\s*DocumentRoot\s+"?([^"\s]+)"?/mi', 'nginx.conf' => '/^\s*root\s+"?([^";\s]+)"?\s*;/mi'] as $f => $re) {
+                $t = is_file("$conf/$f") ? (string) @file_get_contents("$conf/$f") : '';
+                if ($t !== '' && preg_match_all($re, $t, $m)) {
+                    $text = $t;
+                    $roots = array_unique($m[1]);
+                    break;
+                }
+            }
+            $match = false;
+            foreach ($roots as $d) {
+                if (rtrim($d, '/') === rtrim($root, '/') || self::dirId($d) === $id) {
+                    $match = true;
+                    break;
+                }
+            }
+            if (!$match) {
+                continue;
+            }
+            $ver = null;
+            $how = '';
+            foreach (glob($phpDir . '/*/etc/php-fpm.d/' . $domain . '.conf') ?: [] as $pool) {
+                $v = basename(dirname($pool, 3));
+                if (preg_match('/^\d+\.\d+$/', $v) && ($ver === null || version_compare($v, $ver, '>'))) {
+                    $ver = $v;
+                    $how = 'PHP-FPM pool ' . $pool;
+                }
+            }
+            if ($ver === null && preg_match('#' . preg_quote($phpDir, '#') . '/(\d+\.\d+)/#', $text, $m)) {
+                $ver = $m[1];
+                $how = 'Plesk PHP named in its configuration';
+            }
+            if ($ver !== null) {
+                $out[$ver][] = "$domain ($how)";
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * Velocity sites that serve $root, by the PHP their file name carries (vcc-<user>-php85-<hash>.conf).
+     * @return array<string, list<string>>
+     */
+    public static function velocityPhps(string $root): array
+    {
+        $id = self::dirId($root);
+        $out = [];
+        if ($id === null) {
+            return [];
+        }
+        foreach (self::$webPaths['velocity'] as $dir) {
+            foreach (glob($dir . '/*.conf') ?: [] as $f) {
+                if (!preg_match('/-php(\d)(\d+)-/', basename($f), $m)) {
+                    continue;
+                }
+                // a string match, not a JSON decode: a site file holds every rewrite rule and can be megabytes
+                preg_match_all('/"([^"]+)"\s*:\s*\{\s*"root"\s*:\s*"([^"]+)"/', (string) @file_get_contents($f), $hosts, PREG_SET_ORDER);
+                foreach ($hosts as $h) {
+                    $host = $h[1];
+                    $r = str_replace('\\/', '/', $h[2]);
+                    if (rtrim($r, '/') === rtrim($root, '/') || self::dirId($r) === $id) {
+                        $out[$m[1] . '.' . $m[2]][] = "$host (Velocity " . basename($f) . ')';
+                    }
+                }
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * The PHP constraints of an install's packages: composer.json require.php and require.php of every package its
+     * composer.lock installs (not the dev ones). name => constraint.
+     * @return array<string,string>
+     */
+    public static function lockPhpConstraints(?string $tree): array
+    {
+        $out = [];
+        if ($tree === null) {
+            return $out;
+        }
+        foreach (['composer.json', 'composer.lock'] as $f) {
+            $j = is_file("$tree/$f") ? json_decode((string) file_get_contents("$tree/$f"), true) : null;
+            if (!is_array($j)) {
+                continue;
+            }
+            if ($f === 'composer.json' && isset($j['require']['php'])) {
+                $out['composer.json'] = (string) $j['require']['php'];
+            }
+            foreach ((array) ($j['packages'] ?? []) as $p) {
+                if (is_array($p) && isset($p['name'], $p['require']['php'])) {
+                    $out[(string) $p['name']] = (string) $p['require']['php'];
+                }
+            }
+        }
+        return $out;
+    }
+
+    /** "8.5" -> "8.5.0", "8.6.0-dev" -> "8.6.0", "v1" -> "1.0.0" (three numeric positions). */
+    private static function norm(string $v): ?string
+    {
+        if (!preg_match('/^v?(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:\.\d+)?(?:[-@].*)?$/i', trim($v), $m)) {
+            return null;
+        }
+        return (int) $m[1] . '.' . (int) ($m[2] ?? 0) . '.' . (int) ($m[3] ?? 0);
+    }
+
+    /**
+     * Whether Composer's constraint $c allows PHP $v ("8.6.0"): ||, |, AND by space or comma, >= > <= < = == != <>,
+     * ^, ~, 8.* and "A - B". null when the constraint has a form this does not read (then it decides nothing).
+     */
+    public static function constraintAllows(string $c, string $v): ?bool
+    {
+        $v = self::norm($v);
+        $c = trim(preg_replace('/(>=|<=|!=|==|<>|>|<|=|\^|~)\s+/', '$1', $c) ?? '');
+        if ($v === null) {
+            return null;
+        }
+        if ($c === '' || $c === '*') {
+            return true;
+        }
+        $unknown = false;
+        foreach (preg_split('/\s*\|\|?\s*/', $c) ?: [] as $or) {
+            $or = trim($or);
+            if (preg_match('/^(\S+)\s+-\s+(\S+)$/', $or, $m)) {
+                $lo = self::norm($m[1]);
+                $hi = self::norm($m[2]);
+                if ($lo === null || $hi === null) {
+                    $unknown = true;
+                    continue;
+                }
+                $parts = count(explode('.', preg_replace('/[-@].*$/', '', ltrim($m[2], 'v'))));
+                $hiOk = $parts >= 3 ? version_compare($v, $hi, '<=') : version_compare($v, self::bump($hi, $parts - 1), '<');
+                if (version_compare($v, $lo, '>=') && $hiOk) {
+                    return true;
+                }
+                continue;
+            }
+            $all = true;
+            foreach (preg_split('/\s*,\s*|\s+/', $or) ?: [] as $atom) {
+                $r = self::atomAllows($atom, $v);
+                if ($r === null) {
+                    $unknown = true;
+                    $all = false;
+                    break;
+                }
+                if (!$r) {
+                    $all = false;
+                    break;
+                }
+            }
+            if ($all) {
+                return true;
+            }
+        }
+        return $unknown ? null : false;
+    }
+
+    /** "8.5.0" with position $pos (0 major, 1 minor, 2 patch) raised by one and the ones below it zeroed. */
+    private static function bump(string $v, int $pos): string
+    {
+        $p = array_map('intval', explode('.', $v));
+        $p[$pos]++;
+        for ($i = $pos + 1; $i < 3; $i++) {
+            $p[$i] = 0;
+        }
+        return implode('.', $p);
+    }
+
+    private static function atomAllows(string $a, string $v): ?bool
+    {
+        $a = preg_replace('/@\w+$/', '', trim($a)) ?? '';
+        if ($a === '' || $a === '*' || strtolower($a) === 'x') {
+            return true;
+        }
+        if (preg_match('/^v?(\d+)(?:\.(\d+))?\.[*x]$/i', $a, $m)) {
+            $lo = $m[1] . '.' . ($m[2] ?? '0') . '.0';
+            return version_compare($v, $lo, '>=') && version_compare($v, self::bump($lo, isset($m[2]) ? 1 : 0), '<');
+        }
+        if (!preg_match('/^(>=|<=|!=|==|<>|>|<|=|\^|~)?(.+)$/', $a, $m) || ($n = self::norm($m[2])) === null) {
+            return null;
+        }
+        $parts = count(explode('.', preg_replace('/[-@].*$/', '', ltrim($m[2], 'vV'))));
+        switch ($m[1]) {
+            case '>=':
+                return version_compare($v, $n, '>=');
+            case '>':
+                return version_compare($v, $n, '>');
+            case '<=':
+                return version_compare($v, $n, '<=');
+            case '<':
+                return version_compare($v, $n, '<');
+            case '!=':
+            case '<>':
+                return version_compare($v, $n, '!=');
+            case '^':
+                $p = explode('.', $n);
+                $pos = (int) $p[0] > 0 ? 0 : ((int) $p[1] > 0 || $parts < 3 ? 1 : 2);
+                return version_compare($v, $n, '>=') && version_compare($v, self::bump($n, $pos), '<');
+            case '~':
+                return version_compare($v, $n, '>=') && version_compare($v, self::bump($n, $parts >= 3 ? 1 : 0), '<');
+            default:
+                // a bare or "=" version: that exact version, as Composer reads it ("8.1" is 8.1.0)
+                return version_compare($v, $n, '==');
+        }
+    }
+
+    /** The package whose PHP constraint rules PHP_VERSION_ID $id out (name: constraint), or null. @param array<string,string> $constraints */
+    public static function excludedBy(array $constraints, int $id): ?string
+    {
+        $v = intdiv($id, 10000) . '.' . intdiv($id % 10000, 100) . '.' . ($id % 100);
+        foreach ($constraints as $name => $c) {
+            if (self::constraintAllows($c, $v) === false) {
+                return "$name requires php $c";
+            }
         }
         return null;
+    }
+
+    /** True for a PHP a hosting panel builds and maintains (Plesk, LiteSpeed, cPanel, CloudLinux). */
+    public static function isPanelPhp(string $b): bool
+    {
+        return (bool) preg_match('#^(/opt/plesk/php/|/usr/local/lsws/|/opt/cpanel/|/opt/alt/)#', str_replace('\\', '/', $b));
+    }
+
+    /**
+     * The installed PHPs in the order of the fallback: the panel's own PHPs first, newest first, then the others
+     * (/usr/bin/phpNN, Windows), newest first; when the node has a panel PHP, another PHP newer than the newest panel
+     * one is left out (a distribution's dev or preview build such as /usr/bin/php86 is not what the sites run).
+     * @param list<string> $installed @param array<string,int|null> $versions
+     * @return list<string>
+     */
+    public static function rankInstalled(array $installed, array $versions): array
+    {
+        $panelMax = 0;
+        foreach ($installed as $b) {
+            if (self::isPanelPhp($b) && ($versions[$b] ?? null) !== null) {
+                $panelMax = max($panelMax, intdiv((int) $versions[$b], 100));
+            }
+        }
+        $list = array_values(array_filter($installed, static function ($b) use ($versions, $panelMax) {
+            return self::isPanelPhp($b) || $panelMax === 0 || intdiv((int) ($versions[$b] ?? 0), 100) <= $panelMax;
+        }));
+        usort($list, static function ($a, $b) use ($versions) {
+            return [self::isPanelPhp($b), $versions[$b] ?? 0] <=> [self::isPanelPhp($a), $versions[$a] ?? 0];
+        });
+        return $list;
     }
 
     /** PHP binaries of the usual panels and distributions on this node (Plesk, LiteSpeed, cPanel, CloudLinux, Debian). */
@@ -116,51 +435,80 @@ final class Kernel
      * @param array<string,int|null> $versions binary => PHP_VERSION_ID (null: does not run)
      * @param string|null $setting the php setting (--php), '' or null when none
      * @param list<string> $order the binaries in the order of preference after the web PHP (this PHP, PATH, installed)
-     * @return array{binary: ?string, version: ?int, needs: int, web: ?string, reason: string}
+     * @param array<string,string> $constraints package => require.php of the install's composer.json and composer.lock
+     *        (lockPhpConstraints()): a PHP one of them rules out is skipped; never applied to the php setting
+     * @param string $webSource where the web PHP was read (webPhpInfo()), for the reason
+     * @return array{binary: ?string, version: ?int, needs: int, web: ?string, reason: string, skipped: array<string,string>}
      */
-    public static function choosePhp(array $versions, ?string $setting, ?string $web, array $order, ?int $min): array
+    public static function choosePhp(array $versions, ?string $setting, ?string $web, array $order, ?int $min, array $constraints = [], string $webSource = ''): array
     {
         $needs = max(80100, (int) $min);
-        $ok = static function (?string $b) use ($versions, $needs): bool {
-            return $b !== null && isset($versions[$b]) && $versions[$b] !== null && $versions[$b] >= $needs;
-        };
         $v = static function (int $id): string {
             return intdiv($id, 10000) . '.' . intdiv($id % 10000, 100) . '.' . ($id % 100);
         };
+        $skipped = [];
+        $ok = static function (?string $b, bool $lock = true) use ($versions, $needs, $constraints, $v, &$skipped): bool {
+            if ($b === null || !isset($versions[$b]) || $versions[$b] === null) {
+                return false;
+            }
+            if ($versions[$b] < $needs) {
+                $skipped[$b] = 'PHP ' . $v((int) $versions[$b]) . ' is below ' . $v($needs);
+                return false;
+            }
+            $ex = $lock ? self::excludedBy($constraints, (int) $versions[$b]) : null;
+            if ($ex !== null) {
+                $skipped[$b] = 'PHP ' . $v((int) $versions[$b]) . ': ' . $ex;
+                return false;
+            }
+            return true;
+        };
         $res = ['binary' => null, 'version' => null, 'needs' => $needs, 'web' => $web, 'reason' => ''];
         if ($setting !== null && $setting !== '') {
-            if ($ok($setting)) {
-                return ['binary' => $setting, 'version' => $versions[$setting], 'reason' => 'the php setting'] + $res;
+            if ($ok($setting, false)) {
+                return ['binary' => $setting, 'version' => $versions[$setting], 'reason' => 'the php setting (--php)', 'skipped' => []] + $res;
             }
             $res['reason'] = "the php setting $setting " . (($versions[$setting] ?? null) === null ? 'does not run' : 'is PHP ' . $v((int) $versions[$setting])) . ', the install needs PHP ' . $v($needs) . ' or newer (vendor/composer/platform_check.php)';
-            return $res;
+            return $res + ['skipped' => []];
         }
         if ($web !== null) {
             foreach ($order as $b) {
-                if ($ok($b) && preg_match('/^(\d+)\.(\d+)$/', $web, $m) && intdiv((int) $versions[$b], 100) === (int) $m[1] * 100 + (int) $m[2]) {
-                    return ['binary' => $b, 'version' => $versions[$b], 'reason' => "the web server's PHP $web"] + $res;
+                if (preg_match('/^(\d+)\.(\d+)$/', $web, $m) && isset($versions[$b]) && intdiv((int) $versions[$b], 100) === (int) $m[1] * 100 + (int) $m[2] && $ok($b)) {
+                    return ['binary' => $b, 'version' => $versions[$b], 'reason' => "the web server's PHP $web" . ($webSource !== '' ? " ($webSource)" : ''), 'skipped' => $skipped] + $res;
                 }
             }
         }
         foreach ($order as $b) {
             if ($ok($b)) {
-                return ['binary' => $b, 'version' => $versions[$b], 'reason' => 'the first PHP that meets ' . $v($needs)] + $res;
+                return ['binary' => $b, 'version' => $versions[$b], 'reason' => ($web !== null ? "no binary of the web server's PHP $web will do; " : "the web server's PHP is unknown; ")
+                    . 'the first PHP that meets ' . $v($needs) . ($constraints !== [] ? ' and the PHP constraints of composer.lock' : '') . ' (this PHP, php on PATH, then the panel PHPs newest first, then the others)', 'skipped' => $skipped] + $res;
             }
         }
-        $res['reason'] = 'no PHP on this node meets PHP ' . $v($needs) . ' (vendor/composer/platform_check.php of the install, or the kernel minimum); name one with --php';
-        return $res;
+        $res['reason'] = 'no PHP on this node meets PHP ' . $v($needs) . ' (vendor/composer/platform_check.php of the install, or the kernel minimum)'
+            . ($constraints !== [] ? ' and the PHP constraints of composer.lock' : '') . '; name one with --php';
+        return $res + ['skipped' => $skipped];
     }
 
     /**
      * Runs the choice on this node: the platform minimum of the install (and of the target tree, when given), the
-     * web server's PHP, and the binaries in order: this PHP, php on PATH, then the installed ones, newest first.
-     * @return array{binary: ?string, version: ?int, needs: int, web: ?string, reason: string}
+     * web server's PHP (webPhpInfo(); a site several vhosts serve with different PHPs: the lowest that meets the
+     * minimum), the PHP constraints of the install's (and the target's) composer.lock, and the binaries in order:
+     * this PHP, php on PATH, then the installed ones (rankInstalled(): panel PHPs first, newest first).
+     * @return array{binary: ?string, version: ?int, needs: int, web: ?string, reason: string, skipped: array<string,string>, web_from: array<string, list<string>>}
      */
     public static function selectPhp(Config $cfg, string $root, ?string $targetTree = null): array
     {
         $min = max((int) self::platformMinimum($root), (int) self::platformMinimum($targetTree));
         $setting = $cfg->get('php');
-        $web = self::webPhp($root);
+        $info = self::webPhpInfo($root);
+        $web = $info['version'];
+        foreach (array_keys($info['versions']) as $wv) {
+            if (preg_match('/^(\d+)\.(\d+)$/', (string) $wv, $m) && (int) $m[1] * 100 + (int) $m[2] >= intdiv(max(80100, $min), 100)) {
+                $web = (string) $wv;
+                break;
+            }
+        }
+        $webSource = $info['source'] === '' ? '' : $info['source'] . ($web !== null && isset($info['versions'][$web]) ? ': ' . implode(', ', $info['versions'][$web]) : '');
+        $constraints = array_merge(self::lockPhpConstraints($root), self::lockPhpConstraints($targetTree));
         $first = [PHP_BINARY];
         $w = Proc::which('php');
         if ($w !== null) {
@@ -181,18 +529,15 @@ final class Kernel
             }
         };
         $probe(array_merge($setting !== '' ? [$setting] : [], $webBins, $first));
-        $c = self::choosePhp($versions, $setting, $web, array_values(array_unique(array_merge($webBins, $first))), $min ?: null);
+        $c = self::choosePhp($versions, $setting, $web, array_values(array_unique(array_merge($webBins, $first))), $min ?: null, $constraints, $webSource);
         // settled: a --php is never replaced; a found PHP is kept unless the web PHP's binary was not recognised by
         // its path (then all installed ones are probed, so the web PHP can still be the one)
         $webUnseen = $web !== null && $webBins === [];
-        if ($setting !== '' || ($c['binary'] !== null && !$webUnseen)) {
-            return $c;
+        if ($setting === '' && ($c['binary'] === null || $webUnseen)) {
+            $probe($installed);
+            $c = self::choosePhp($versions, $setting, $web, array_values(array_unique(array_merge($first, self::rankInstalled($installed, $versions)))), $min ?: null, $constraints, $webSource);
         }
-        $probe($installed);
-        usort($installed, static function ($a, $b) use ($versions) {
-            return ($versions[$b] ?? 0) <=> ($versions[$a] ?? 0);
-        });
-        return self::choosePhp($versions, $setting, $web, array_values(array_unique(array_merge($first, $installed))), $min ?: null);
+        return $c + ['web_from' => $info['versions']];
     }
 
     /** True when the tools run as root (xne as root and the install owned by root, or run_as=root). */

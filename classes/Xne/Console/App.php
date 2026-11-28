@@ -25,7 +25,7 @@ use Xne\XneException;
  */
 final class App
 {
-    public const VERSION = '0.3.0.11';
+    public const VERSION = '0.3.0.12';
 
     private const USAGE = [
         'defaults' => "xne defaults [--root=DIR] --reference=DIR [--dry-run]\n  An older install's settings brought to a fresh install's of the same kernel, the site's own kept: the\n  reference's ActiveExtensions the install has but does not run (added after its own), admin4l and the access\n  extensions on every administration siteaccess, AllowedDeletionDirs for a var/ link out of the install. A\n  verified backup first (settings files + database), then the kernel's autoloads, its database stage (tables of\n  the newly active extensions) and the cache clears; any failure rolls back (xne rollback works on it too).",
@@ -379,6 +379,17 @@ final class App
         }
         $db = $d['database'];
         $this->line('database: ' . $db['engine'] . ', ' . ($db['mode'] === 'kernel' ? $db['kernel_command'] : ($db['mode'] === 'sql' ? count($db['sql_files']) . ' SQL file(s) ' . implode(' ', $db['sql_files']) : 'none')));
+        if (isset($d['php'])) {
+            $ph = $d['php'];
+            $vid = (int) ($ph['version'] ?? 0);
+            $this->line('php: ' . ($ph['binary'] === null ? 'none' : $ph['binary'] . ' (PHP ' . intdiv($vid, 10000) . '.' . intdiv($vid % 10000, 100) . '.' . ($vid % 100) . ')') . ': ' . $ph['reason']);
+            foreach ((array) ($ph['web_from'] ?? []) as $wv => $hosts) {
+                $this->line("  web PHP $wv: " . implode(', ', (array) $hosts));
+            }
+            foreach ((array) ($ph['skipped'] ?? []) as $b => $why) {
+                $this->line("  skipped $b: $why");
+            }
+        }
         if ($d['libraries']['needed']) {
             $this->line('libraries: Composer runs (kernel libraries stage); backed up: ' . implode(', ', $d['libraries']['dirs']));
         }
