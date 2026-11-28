@@ -251,10 +251,19 @@ What xne never does:
 
 ## Versioning
 
-Four positions, `X.Y.Z.N`: currently **0.3.0.13** (`App::VERSION`, the `VERSION` file, `xne version`, every `--json`
-result and `GET /api/v1/status`). Only the last position counts on: 0.3.0.13 -> 0.3.0.14. Tags are permanent:
+Four positions, `X.Y.Z.N`: currently **0.3.0.14** (`App::VERSION`, the `VERSION` file, `xne version`, every `--json`
+result and `GET /api/v1/status`). Only the last position counts on: 0.3.0.14 -> 0.3.0.15. Tags are permanent:
 a published version is never moved or re-cut; a fix is always the next version.
 
+- **0.3.0.14** (2026-11-28): the database backup runs in bounded memory. The PostgreSQL dump read each table with a
+  plain query, and pdo_pgsql receives a whole result set into libpq's memory before the first row is read (outside
+  PHP's `memory_limit`): the backup of a large site grew xne to 6.9 GB RSS and earlyoom killed the upgrade twice
+  during "backup: dumping the postgresql database" (nothing was changed; the backup comes first). Rows are now read
+  through a server-side cursor, 500 at a time, inside one read-only REPEATABLE READ transaction (one consistent
+  snapshot, and it works through pgbouncer); MySQL reads unbuffered as before, through the same row stream. A 300 MB
+  table now dumps with about 30 MB RSS (620 MB before). The verification and the restore read the dump back one
+  statement at a time. `DbStreamTest` dumps, verifies and restores a table of a few hundred MB in a child PHP with
+  `memory_limit=128M` and checks its peak RSS, on PostgreSQL and MySQL servers (CI job `stream`).
 - **0.3.0.13** (2026-11-28): the web server's PHP is no longer held to the PHP constraints of the installed
   `composer.lock`. 0.3.0.12 applied them to every candidate, so a Plesk site on PHP 8.5 whose lock still had an
   older `se7enxweb/exponential-php-floor` (`php >=8.1 <8.4`, replaced by the upgrade) got its tools run with PHP 8.3.
